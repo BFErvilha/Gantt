@@ -1,11 +1,42 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue' // <--- Adicionado onMounted
 import { useGantt } from '@/composables/useGantt'
 import { useDataPersistence } from '@/composables/useDataPersistence'
 
 const { computedTasks, config, importTasks } = useGantt()
 const { exportToExcel, exportToPDF, importFromExcel } = useDataPersistence()
 const fileInput = ref<HTMLInputElement | null>(null)
+
+// --- LÓGICA DE INSTALAÇÃO PWA ---
+const deferredPrompt = ref<any>(null)
+const showInstallButton = ref(false)
+
+onMounted(() => {
+	window.addEventListener('beforeinstallprompt', e => {
+		// 1. Impede o mini-infobar padrão do navegador de aparecer imediatamente
+		e.preventDefault()
+		// 2. Guarda o evento para disparar depois quando o usuário clicar no botão
+		deferredPrompt.value = e
+		// 3. Mostra o nosso botão personalizado
+		showInstallButton.value = true
+	})
+})
+
+const installPWA = async () => {
+	if (!deferredPrompt.value) return
+
+	// Mostra o prompt nativo de instalação
+	deferredPrompt.value.prompt()
+
+	// Espera a escolha do usuário (aceitou ou cancelou)
+	const { outcome } = await deferredPrompt.value.userChoice
+	console.log(`User response to the install prompt: ${outcome}`)
+
+	// Limpa a variável e esconde o botão, pois o prompt só pode ser usado uma vez
+	deferredPrompt.value = null
+	showInstallButton.value = false
+}
+// --------------------------------
 
 const handleExportExcel = () => exportToExcel(computedTasks.value)
 const handleExportPDF = () => exportToPDF(computedTasks.value, config.value)
@@ -35,6 +66,12 @@ const handleFileChange = async (event: Event) => {
 		<h3 class="text-sm font-bold uppercase text-slate-500 mb-3">Ações e Relatórios</h3>
 
 		<div class="grid grid-cols-1 gap-2">
+			<button v-if="showInstallButton" @click="installPWA" class="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-3 py-2 rounded hover:from-indigo-600 hover:to-purple-700 transition text-sm font-bold shadow-md mb-2">
+				<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+				</svg>
+				Instalar Aplicativo
+			</button>
 			<div class="flex gap-2">
 				<button @click="handleExportExcel" class="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white px-3 py-2 rounded hover:bg-green-700 transition text-sm font-medium">
 					<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

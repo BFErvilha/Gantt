@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { addDays, addBusinessDays, format, startOfDay, isWeekend, differenceInCalendarDays } from 'date-fns'
 
 export interface Task {
@@ -10,6 +10,7 @@ export interface Task {
 	startDate?: Date
 	endDate?: Date
 	offsetDays?: number
+	calendarDuration?: number
 	formattedStartDate?: string
 	formattedEndDate?: string
 }
@@ -20,15 +21,38 @@ export interface ProjectConfig {
 	skipWeekends: boolean
 }
 
-const tasks = ref<Task[]>([])
+const STORAGE_KEY_TASKS = 'gantt-pro-tasks'
+const STORAGE_KEY_CONFIG = 'gantt-pro-config'
 
-const config = ref<ProjectConfig>({
-	projectStartDate: format(new Date(), 'yyyy-MM-dd'),
-	deadline: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
-	skipWeekends: true,
-})
+const loadInitialTasks = (): Task[] => {
+	const saved = localStorage.getItem(STORAGE_KEY_TASKS)
+	return saved ? JSON.parse(saved) : []
+}
+
+const loadInitialConfig = (): ProjectConfig => {
+	const saved = localStorage.getItem(STORAGE_KEY_CONFIG)
+	return saved
+		? JSON.parse(saved)
+		: {
+				projectStartDate: format(new Date(), 'yyyy-MM-dd'),
+				deadline: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+				skipWeekends: true,
+		  }
+}
+
+const tasks = ref<Task[]>(loadInitialTasks())
+const config = ref<ProjectConfig>(loadInitialConfig())
 
 export function useGantt() {
+	watch(
+		[tasks, config],
+		() => {
+			localStorage.setItem(STORAGE_KEY_TASKS, JSON.stringify(tasks.value))
+			localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(config.value))
+		},
+		{ deep: true },
+	)
+
 	const calculateEndDate = (start: Date, duration: number) => {
 		const durationCalc = Math.max(0, duration - 1)
 
@@ -85,7 +109,10 @@ export function useGantt() {
 		}
 
 		return tasks.value.map(task => {
-			const dates = tempDates.get(task.id) || { start: projectStart, end: projectStart }
+			const dates = tempDates.get(task.id) || {
+				start: projectStart,
+				end: projectStart,
+			}
 
 			const calendarDuration = differenceInCalendarDays(dates.end, dates.start) + 1
 
@@ -100,6 +127,7 @@ export function useGantt() {
 			}
 		})
 	})
+
 	const importTasks = (newTasks: Partial<Task>[]) => {
 		tasks.value = newTasks.map(t => ({
 			id: t.id || crypto.randomUUID(),
@@ -109,6 +137,7 @@ export function useGantt() {
 			color: t.color || '#3b82f6',
 		})) as Task[]
 	}
+
 	const totalProjectDays = computed(() => {
 		if (computedTasks.value.length === 0) return 30
 
