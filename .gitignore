@@ -1,0 +1,48 @@
+# Logs e Depuração
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependências (Nunca suba isso!)
+node_modules
+.pnpm-store
+
+# Build de Produção (O Deploy gera isso na nuvem, não suba)
+dist
+dist-ssr
+*.local
+
+# Editor de Código (Configurações locais suas)
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs
+*.njsproj
+*.sln
+*.sw?
+
+# TypeScript (Arquivos de cache de build)
+*.tsbuildinfo
+
+# Ignorar planilhas e PDFs que você gera testando a exportação
+*.xlsx
+*.xls
+*.pdf
+*.csv
+
+.env
+.env.*
+!.env.example
+
+coverage
+test-results
+
+src-sw.js
+sw.js
+workbox-*.js
+worker-*.js
