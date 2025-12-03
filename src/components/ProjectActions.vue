@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue' // <--- Adicionado onMounted
+import { ref, onMounted } from 'vue'
 import { useGantt } from '@/composables/useGantt'
 import { useDataPersistence } from '@/composables/useDataPersistence'
 
@@ -7,17 +7,13 @@ const { computedTasks, config, importTasks } = useGantt()
 const { exportToExcel, exportToPDF, importFromExcel } = useDataPersistence()
 const fileInput = ref<HTMLInputElement | null>(null)
 
-// --- LÓGICA DE INSTALAÇÃO PWA ---
 const deferredPrompt = ref<any>(null)
 const showInstallButton = ref(false)
 
 onMounted(() => {
 	window.addEventListener('beforeinstallprompt', e => {
-		// 1. Impede o mini-infobar padrão do navegador de aparecer imediatamente
 		e.preventDefault()
-		// 2. Guarda o evento para disparar depois quando o usuário clicar no botão
 		deferredPrompt.value = e
-		// 3. Mostra o nosso botão personalizado
 		showInstallButton.value = true
 	})
 })
@@ -25,18 +21,14 @@ onMounted(() => {
 const installPWA = async () => {
 	if (!deferredPrompt.value) return
 
-	// Mostra o prompt nativo de instalação
 	deferredPrompt.value.prompt()
 
-	// Espera a escolha do usuário (aceitou ou cancelou)
 	const { outcome } = await deferredPrompt.value.userChoice
 	console.log(`User response to the install prompt: ${outcome}`)
 
-	// Limpa a variável e esconde o botão, pois o prompt só pode ser usado uma vez
 	deferredPrompt.value = null
 	showInstallButton.value = false
 }
-// --------------------------------
 
 const handleExportExcel = () => exportToExcel(computedTasks.value)
 const handleExportPDF = () => exportToPDF(computedTasks.value, config.value)
