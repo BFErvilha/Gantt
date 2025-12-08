@@ -4,20 +4,19 @@ import path from 'path'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+	base: '/gantt-ficator/',
 	plugins: [
 		vue(),
 		VitePWA({
 			registerType: 'autoUpdate',
 
-			// 1. Permite testar o PWA em modo de desenvolvimento (pnpm dev)
 			devOptions: {
 				enabled: true,
 			},
 
-			// 2. Aumenta o limite de cache (bibliotecas como jsPDF podem ser grandes)
 			workbox: {
 				globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-				maximumFileSizeToCacheInBytes: 3000000, // Aumenta para 3MB
+				maximumFileSizeToCacheInBytes: 3000000,
 			},
 
 			includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
@@ -29,27 +28,26 @@ export default defineConfig({
 				theme_color: '#ffffff',
 				background_color: '#f8fafc',
 				display: 'standalone',
-				orientation: 'portrait', // Opcional: força modo retrato no mobile
+				orientation: 'portrait',
 
-				// 3. Ícones separados explicitamente para evitar erros de validação
 				icons: [
 					{
 						src: 'pwa-192x192.png',
 						sizes: '192x192',
 						type: 'image/png',
-						purpose: 'any', // Importante: 'any' explícito
+						purpose: 'any',
 					},
 					{
 						src: 'pwa-512x512.png',
 						sizes: '512x512',
 						type: 'image/png',
-						purpose: 'any', // Importante: 'any' explícito
+						purpose: 'any',
 					},
 					{
 						src: 'pwa-512x512.png',
 						sizes: '512x512',
 						type: 'image/png',
-						purpose: 'maskable', // Ícone adaptável para Android
+						purpose: 'maskable',
 					},
 				],
 			},
@@ -60,9 +58,9 @@ export default defineConfig({
 			'@': path.resolve(__dirname, './src'),
 		},
 	},
-	// Opcional: Otimização do Build para separar as libs pesadas
+
 	build: {
-		chunkSizeWarningLimit: 1000, // Aumenta o aviso de tamanho de chunk
+		chunkSizeWarningLimit: 1000,
 		rollupOptions: {
 			output: {
 				manualChunks(id) {
