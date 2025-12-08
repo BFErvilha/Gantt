@@ -1,5 +1,5 @@
 import { ref, computed, watch } from 'vue'
-import { addDays, addBusinessDays, format, startOfDay, isWeekend, differenceInCalendarDays } from 'date-fns'
+import { addDays, format, startOfDay, isWeekend, differenceInCalendarDays } from 'date-fns'
 
 export interface Task {
 	id: string
@@ -7,6 +7,7 @@ export interface Task {
 	duration: number
 	dependencyId: string | null
 	color: string
+	type: 'frontend' | 'backend' | 'other'
 	startDate?: Date
 	endDate?: Date
 	offsetDays?: number
@@ -19,6 +20,8 @@ export interface ProjectConfig {
 	projectStartDate: string
 	deadline: string
 	skipWeekends: boolean
+	holidays: string[]
+	risks: string[]
 }
 
 const STORAGE_KEY_TASKS = 'gantt-pro-tasks'
@@ -31,17 +34,26 @@ const loadInitialTasks = (): Task[] => {
 
 const loadInitialConfig = (): ProjectConfig => {
 	const saved = localStorage.getItem(STORAGE_KEY_CONFIG)
-	return saved
-		? JSON.parse(saved)
-		: {
-				projectStartDate: format(new Date(), 'yyyy-MM-dd'),
-				deadline: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
-				skipWeekends: true,
-		  }
+	if (saved) {
+		const parsed = JSON.parse(saved)
+		return {
+			holidays: [],
+			risks: [],
+			...parsed,
+		}
+	}
+	return {
+		projectStartDate: format(new Date(), 'yyyy-MM-dd'),
+		deadline: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+		skipWeekends: true,
+		holidays: [],
+		risks: [],
+	}
 }
 
 const tasks = ref<Task[]>(loadInitialTasks())
 const config = ref<ProjectConfig>(loadInitialConfig())
+const editingTask = ref<Task | null>(null)
 
 export function useGantt() {
 	watch(
@@ -53,20 +65,33 @@ export function useGantt() {
 		{ deep: true },
 	)
 
-	const calculateEndDate = (start: Date, duration: number) => {
-		const durationCalc = Math.max(0, duration - 1)
+	const isNonWorkingDay = (date: Date) => {
+		const dateString = format(date, 'yyyy-MM-dd')
+		const isHoliday = config.value.holidays.includes(dateString)
 
 		if (config.value.skipWeekends) {
-			return addBusinessDays(start, durationCalc)
+			return isWeekend(date) || isHoliday
 		}
-		return addDays(start, durationCalc)
+		return isHoliday
+	}
+
+	const calculateEndDate = (start: Date, duration: number) => {
+		let daysAdded = 0
+		let current = start
+		const targetDays = Math.max(0, duration - 1)
+
+		while (daysAdded < targetDays) {
+			current = addDays(current, 1)
+			if (!isNonWorkingDay(current)) {
+				daysAdded++
+			}
+		}
+		return current
 	}
 
 	const getNextValidStartDate = (date: Date) => {
-		if (!config.value.skipWeekends) return date
-
 		let current = date
-		while (isWeekend(current)) {
+		while (isNonWorkingDay(current)) {
 			current = addDays(current, 1)
 		}
 		return current
@@ -135,6 +160,7 @@ export function useGantt() {
 			duration: t.duration || 1,
 			dependencyId: t.dependencyId || null,
 			color: t.color || '#3b82f6',
+			type: t.type || 'other',
 		})) as Task[]
 	}
 
@@ -160,7 +186,16 @@ export function useGantt() {
 			duration: task.duration || 1,
 			dependencyId: task.dependencyId || null,
 			color: task.color || '#3b82f6',
+			type: task.type || 'other',
 		})
+	}
+
+	const updateTask = (updatedTask: Task) => {
+		const index = tasks.value.findIndex(t => t.id === updatedTask.id)
+		if (index !== -1) {
+			tasks.value[index] = { ...updatedTask }
+		}
+		editingTask.value = null
 	}
 
 	const removeTask = (id: string) => {
@@ -168,6 +203,38 @@ export function useGantt() {
 		tasks.value.forEach(t => {
 			if (t.dependencyId === id) t.dependencyId = null
 		})
+		if (editingTask.value?.id === id) {
+			editingTask.value = null
+		}
+	}
+
+	const setEditingTask = (task: Task) => {
+		editingTask.value = JSON.parse(JSON.stringify(task))
+	}
+
+	const cancelEditing = () => {
+		editingTask.value = null
+	}
+
+	const addHoliday = (date: string) => {
+		if (!config.value.holidays.includes(date)) {
+			config.value.holidays.push(date)
+			config.value.holidays.sort()
+		}
+	}
+
+	const removeHoliday = (date: string) => {
+		config.value.holidays = config.value.holidays.filter(d => d !== date)
+	}
+
+	const addRisk = (risk: string) => {
+		if (risk && !config.value.risks.includes(risk)) {
+			config.value.risks.push(risk)
+		}
+	}
+
+	const removeRisk = (index: number) => {
+		config.value.risks.splice(index, 1)
 	}
 
 	return {
@@ -175,8 +242,17 @@ export function useGantt() {
 		config,
 		computedTasks,
 		totalProjectDays,
+		editingTask,
 		addTask,
+		updateTask,
 		removeTask,
 		importTasks,
+		setEditingTask,
+		cancelEditing,
+		addHoliday,
+		removeHoliday,
+		addRisk,
+		removeRisk,
+		isNonWorkingDay,
 	}
 }

@@ -4,19 +4,27 @@ import { useGantt } from '@/composables/useGantt'
 import { format, addDays, startOfDay, isWeekend, differenceInCalendarDays } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
-const { computedTasks, config, totalProjectDays } = useGantt()
+// Recuperamos a config para acessar a lista de holidays
+const { computedTasks, config, totalProjectDays, setEditingTask, editingTask } = useGantt()
 const cellWidth = 40
 
 const timelineDates = computed(() => {
 	const start = startOfDay(new Date(config.value.projectStartDate))
 	return Array.from({ length: totalProjectDays.value }, (_, i) => {
 		const date = addDays(start, i)
+		const dateString = format(date, 'yyyy-MM-dd')
+
+		// Verifica se é feriado olhando a lista na configuração
+		const isHoliday = config.value.holidays.includes(dateString)
+		const isWknd = isWeekend(date)
+
 		return {
 			date,
 			label: format(date, 'dd', { locale: ptBR }),
 			dayName: format(date, 'EEEEEE', { locale: ptBR }),
 			fullDate: format(date, 'dd/MM/yyyy'),
-			isWeekend: isWeekend(date),
+			isWeekend: isWknd,
+			isHoliday: isHoliday, // Nova propriedade
 		}
 	})
 })
@@ -34,7 +42,17 @@ const containerWidth = computed(() => totalProjectDays.value * cellWidth)
 	<div class="bg-white rounded-lg shadow overflow-hidden border border-slate-200 flex flex-col h-full">
 		<div class="p-4 border-b border-slate-200 bg-white flex justify-between items-center z-20 relative shadow-sm">
 			<h2 class="font-bold text-slate-700 flex items-center gap-2">Visualização Gantt</h2>
+
 			<div class="flex items-center gap-4 text-xs font-medium text-slate-600">
+				<div class="flex gap-2 mr-4 border-r border-slate-200 pr-4">
+					<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500"></span> Front</span>
+					<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span> Back</span>
+				</div>
+
+				<div class="flex items-center gap-1">
+					<span class="w-3 h-3 bg-purple-100 rounded border border-purple-200"></span>
+					Feriado/Off
+				</div>
 				<div class="flex items-center gap-1">
 					<span class="w-3 h-3 bg-red-500 rounded-full opacity-20 border border-red-500"></span>
 					Fim de Semana
@@ -57,10 +75,14 @@ const containerWidth = computed(() => totalProjectDays.value * cellWidth)
 					<div
 						v-for="(day, index) in timelineDates"
 						:key="index"
-						class="flex-shrink-0 border-r border-slate-100 flex flex-col items-center justify-center text-xs select-none"
-						:class="{ 'bg-red-50/50 text-red-300': day.isWeekend, 'bg-white': !day.isWeekend }"
+						class="flex-shrink-0 border-r border-slate-100 flex flex-col items-center justify-center text-xs select-none transition-colors"
+						:class="{
+							'bg-purple-100 text-purple-700 font-bold': day.isHoliday,
+							'bg-red-50/50 text-red-300': day.isWeekend && !day.isHoliday,
+							'bg-white': !day.isWeekend && !day.isHoliday,
+						}"
 						:style="{ width: cellWidth + 'px' }"
-						:title="day.fullDate"
+						:title="day.isHoliday ? `Feriado: ${day.fullDate}` : day.fullDate"
 					>
 						<span class="font-bold">{{ day.label }}</span>
 						<span class="text-[9px] uppercase">{{ day.dayName }}</span>
@@ -69,7 +91,16 @@ const containerWidth = computed(() => totalProjectDays.value * cellWidth)
 
 				<div class="relative">
 					<div class="absolute inset-0 flex pointer-events-none">
-						<div v-for="(day, index) in timelineDates" :key="index" class="border-r border-slate-200/50 h-full box-border" :class="{ 'bg-red-50/30': day.isWeekend }" :style="{ width: cellWidth + 'px' }"></div>
+						<div
+							v-for="(day, index) in timelineDates"
+							:key="index"
+							class="border-r border-slate-200/50 h-full box-border"
+							:class="{
+								'bg-purple-50/40': day.isHoliday,
+								'bg-red-50/30': day.isWeekend && !day.isHoliday,
+							}"
+							:style="{ width: cellWidth + 'px' }"
+						></div>
 					</div>
 
 					<div class="py-2 space-y-1">
@@ -78,6 +109,8 @@ const containerWidth = computed(() => totalProjectDays.value * cellWidth)
 
 							<div
 								class="absolute h-7 rounded-md shadow-sm text-[11px] text-white flex items-center px-2 cursor-pointer hover:ring-2 ring-white ring-offset-2 ring-offset-slate-100 transition-all z-10 overflow-hidden"
+								:class="{ 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white': editingTask?.id === task.id }"
+								@click="setEditingTask(task)"
 								:style="{
 									left: (task.offsetDays || 0) * cellWidth + 'px',
 									width: task.calendarDuration * cellWidth + 'px',
@@ -92,6 +125,8 @@ const containerWidth = computed(() => totalProjectDays.value * cellWidth)
 
 							<div class="absolute hidden group-hover:flex items-center gap-2 z-30 bg-slate-800 text-white text-xs px-2 py-1 rounded shadow-lg -top-8 pointer-events-none whitespace-nowrap" :style="{ left: (task.offsetDays || 0) * cellWidth + 10 + 'px' }">
 								<span class="font-bold">{{ task.name }}</span>
+								<span class="opacity-75">|</span>
+								<span class="uppercase text-[10px] bg-white/20 px-1 rounded">{{ task.type || 'other' }}</span>
 								<span class="opacity-75">|</span>
 								<span>{{ task.formattedStartDate }} até {{ task.formattedEndDate }}</span>
 							</div>
