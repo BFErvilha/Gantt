@@ -3,10 +3,11 @@ import { ref } from 'vue'
 import { useGantt } from '@/composables/useGantt'
 import { format, parseISO } from 'date-fns'
 
-const { config, addHoliday, removeHoliday, addMember, removeMember, automaticRisks } = useGantt()
+const { config, addHoliday, removeHoliday, addMember, removeMember, automaticRisks, projectCapacityStats } = useGantt()
 
 const newHolidayDate = ref('')
 const newMemberName = ref('')
+const newMemberCapacity = ref(8) // Padrão 8h
 
 const handleAddHoliday = () => {
 	if (newHolidayDate.value) {
@@ -16,9 +17,10 @@ const handleAddHoliday = () => {
 }
 
 const handleAddMember = () => {
-	if (newMemberName.value) {
-		addMember(newMemberName.value)
+	if (newMemberName.value && newMemberCapacity.value > 0) {
+		addMember(newMemberName.value, newMemberCapacity.value)
 		newMemberName.value = ''
+		newMemberCapacity.value = 8
 	}
 }
 
@@ -57,17 +59,33 @@ const formatDateBr = (isoDate: string) => format(parseISO(isoDate), 'dd/MM/yyyy'
 						d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0z"
 					/>
 				</svg>
-				Equipe
+				Equipe & Capacidade
 			</h3>
+
 			<div class="flex gap-2 mb-3">
-				<input v-model="newMemberName" type="text" placeholder="Nome do Membro" class="flex-1 text-sm rounded border-slate-300 shadow-sm p-2 border focus:ring-2 focus:ring-blue-500 focus:outline-none" @keydown.enter.prevent="handleAddMember" />
+				<input v-model="newMemberName" type="text" placeholder="Nome" class="flex-1 text-sm rounded border-slate-300 shadow-sm p-2 border focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+				<input v-model.number="newMemberCapacity" type="number" placeholder="8h" min="1" max="24" class="w-20 text-sm rounded border-slate-300 shadow-sm p-2 border focus:ring-2 focus:ring-blue-500 focus:outline-none" title="Capacidade diária (horas)" />
 				<button @click="handleAddMember" class="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-2 rounded text-sm hover:bg-blue-100 transition-colors font-bold">+</button>
 			</div>
-			<div class="flex flex-wrap gap-2">
+
+			<div class="flex flex-wrap gap-2 mb-4">
 				<div v-if="config.teamMembers.length === 0" class="text-xs text-slate-400 italic w-full text-center py-2">Nenhum membro adicionado.</div>
 				<div v-for="(member, index) in config.teamMembers" :key="index" class="flex items-center gap-2 bg-blue-50 px-3 py-1 rounded-full border border-blue-100 text-xs text-blue-800 font-medium">
-					<span>{{ member }}</span>
+					<span>{{ member.name }} ({{ member.capacity }}h)</span>
 					<button @click="removeMember(index)" class="text-blue-400 hover:text-blue-700 font-bold">&times;</button>
+				</div>
+			</div>
+
+			<div v-if="config.teamMembers.length > 0" class="bg-slate-50 rounded p-3 border border-slate-200 text-xs text-slate-700">
+				<h4 class="font-bold mb-2 flex justify-between">
+					<span>Capacidade do Projeto ({{ projectCapacityStats.workingDays }} dias úteis)</span>
+					<span class="text-blue-600">{{ projectCapacityStats.totalTeamCapacity }}h Totais</span>
+				</h4>
+				<div class="space-y-1">
+					<div v-for="stat in projectCapacityStats.memberStats" :key="stat.name" class="flex justify-between border-b border-slate-200/50 pb-1 last:border-0 last:pb-0">
+						<span>{{ stat.name }}</span>
+						<span class="font-medium">{{ stat.totalCapacity }}h disp.</span>
+					</div>
 				</div>
 			</div>
 		</div>

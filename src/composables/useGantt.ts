@@ -1,6 +1,10 @@
 import { ref, computed, watch } from 'vue'
-// Adicionei 'parseISO' que estava a faltar nas importações
 import { addDays, format, startOfDay, isWeekend, differenceInCalendarDays, parseISO } from 'date-fns'
+
+export interface TeamMember {
+	name: string
+	capacity: number
+}
 
 export interface Task {
 	id: string
@@ -25,7 +29,7 @@ export interface ProjectConfig {
 	skipWeekends: boolean
 	holidays: string[]
 	risks: string[]
-	teamMembers: string[]
+	teamMembers: TeamMember[]
 }
 
 const STORAGE_KEY_TASKS = 'gantt-pro-tasks'
@@ -40,11 +44,20 @@ const loadInitialConfig = (): ProjectConfig => {
 	const saved = localStorage.getItem(STORAGE_KEY_CONFIG)
 	if (saved) {
 		const parsed = JSON.parse(saved)
+
+		let members: TeamMember[] = []
+		if (Array.isArray(parsed.teamMembers)) {
+			members = parsed.teamMembers.map((m: any) => {
+				if (typeof m === 'string') return { name: m, capacity: 8 }
+				return m
+			})
+		}
+
 		return {
 			holidays: [],
 			risks: [],
-			teamMembers: [],
 			...parsed,
+			teamMembers: members,
 		}
 	}
 	return {
@@ -212,16 +225,44 @@ export function useGantt() {
 	const removeRisk = (index: number) => {
 		config.value.risks.splice(index, 1)
 	}
-	const addMember = (name: string) => {
-		if (name && !config.value.teamMembers.includes(name)) {
-			config.value.teamMembers.push(name)
+
+	const addMember = (name: string, capacity: number) => {
+		if (name && !config.value.teamMembers.some(m => m.name === name)) {
+			config.value.teamMembers.push({ name, capacity })
 		}
 	}
 	const removeMember = (index: number) => {
 		config.value.teamMembers.splice(index, 1)
 	}
 
-	// Motor de Riscos
+	const projectCapacityStats = computed(() => {
+		const start = startOfDay(new Date(config.value.projectStartDate))
+		const end = startOfDay(new Date(config.value.deadline))
+
+		let workingDays = 0
+		let current = start
+		while (current <= end) {
+			if (!isNonWorkingDay(current)) {
+				workingDays++
+			}
+			current = addDays(current, 1)
+		}
+
+		const memberStats = config.value.teamMembers.map(m => ({
+			name: m.name,
+			capacityPerDay: m.capacity,
+			totalCapacity: m.capacity * workingDays,
+		}))
+
+		const totalTeamCapacity = memberStats.reduce((sum, m) => sum + m.totalCapacity, 0)
+
+		return {
+			workingDays,
+			totalTeamCapacity,
+			memberStats,
+		}
+	})
+
 	const automaticRisks = computed(() => {
 		const risks: string[] = []
 		if (computedTasks.value.length > 0) {
@@ -241,10 +282,15 @@ export function useGantt() {
 				}
 			}
 		}
+
 		computedTasks.value.forEach(task => {
-			if (task.effort && task.duration && task.effort > task.duration * 8) {
-				risks.push(`CAPACIDADE: Tarefa "${task.name}" requer ${task.effort}h em apenas ${task.duration} dia(s).`)
+			const responsibleMember = config.value.teamMembers.find(m => m.name === task.responsible)
+			const dailyCapacity = responsibleMember ? responsibleMember.capacity : 8
+
+			if (task.effort && task.duration && task.effort > task.duration * dailyCapacity) {
+				risks.push(`CAPACIDADE: "${task.name}" (${task.responsible || 'Sem resp.'}) requer ${task.effort}h. Limite: ${task.duration * dailyCapacity}h.`)
 			}
+
 			if (task.startDate && task.endDate) {
 				const hasHoliday = config.value.holidays.some(h => {
 					const hDate = startOfDay(parseISO(h))
@@ -258,24 +304,16 @@ export function useGantt() {
 		return risks
 	})
 
-	// --- NOVO: Análise do Caminho Crítico ---
 	const criticalPathIds = computed(() => {
 		if (!computedTasks.value.length) return []
-
-		// 1. Encontrar a data final absoluta do projeto
 		let maxEndDate = 0
 		computedTasks.value.forEach(t => {
 			if (t.endDate && t.endDate.getTime() > maxEndDate) {
 				maxEndDate = t.endDate.getTime()
 			}
 		})
-
 		const criticalSet = new Set<string>()
-
-		// 2. Identificar tarefas que terminam nessa data (as últimas da cadeia)
 		const lastTasks = computedTasks.value.filter(t => t.endDate && t.endDate.getTime() === maxEndDate)
-
-		// 3. Rastrear os pais recursivamente (se o filho é crítico, o pai também é)
 		const traceParents = (taskId: string) => {
 			criticalSet.add(taskId)
 			const task = computedTasks.value.find(t => t.id === taskId)
@@ -283,9 +321,7 @@ export function useGantt() {
 				traceParents(task.dependencyId)
 			}
 		}
-
 		lastTasks.forEach(t => traceParents(t.id))
-
 		return Array.from(criticalSet)
 	})
 
@@ -310,5 +346,6 @@ export function useGantt() {
 		removeMember,
 		automaticRisks,
 		criticalPathIds,
+		projectCapacityStats,
 	}
 }

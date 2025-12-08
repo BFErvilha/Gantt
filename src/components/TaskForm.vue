@@ -36,11 +36,27 @@ watch(editingTask, newTask => {
 	}
 })
 
+const getCurrentResponsibleCapacity = () => {
+	if (!formState.value.responsible) return 8
+	const member = config.value.teamMembers.find(m => m.name === formState.value.responsible)
+	return member ? member.capacity : 8
+}
+
+watch([() => formState.value.effort, () => formState.value.responsible], ([newEffort]) => {
+	if (newEffort && newEffort > 0) {
+		const capacity = getCurrentResponsibleCapacity()
+		const daysNeeded = Math.ceil(newEffort / capacity)
+		formState.value.duration = Math.max(1, daysNeeded)
+	}
+})
+
 const capacityAlert = computed(() => {
 	const hours = formState.value.effort
 	const days = formState.value.duration
-	if (hours > days * 8) {
-		return `Atenção: ${hours}h é muito esforço para apenas ${days} dia(s).`
+	const capacity = getCurrentResponsibleCapacity()
+
+	if (hours > days * capacity) {
+		return `Atenção: ${hours}h excede a capacidade de ${days} dia(s) (${capacity}h/dia).`
 	}
 	return null
 })
@@ -134,19 +150,20 @@ const confirmDelete = () => {
 					<label class="block text-sm font-medium text-slate-700 mb-1">Responsável</label>
 					<select v-model="formState.responsible" class="w-full rounded border-slate-300 shadow-sm p-2 border bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
 						<option value="">-- Selecione --</option>
-						<option v-for="member in config.teamMembers" :key="member" :value="member">{{ member }}</option>
+						<option v-for="member in config.teamMembers" :key="member.name" :value="member.name">{{ member.name }}</option>
 					</select>
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-slate-700 mb-1">Esforço (Horas)</label>
-					<input v-model.number="formState.effort" type="number" min="0" class="w-full rounded border-slate-300 shadow-sm p-2 border focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+					<input v-model.number="formState.effort" type="number" min="0" placeholder="Ex: 8" class="w-full rounded border-slate-300 shadow-sm p-2 border focus:ring-2 focus:ring-blue-500 focus:outline-none" />
 				</div>
 			</div>
 
 			<div class="grid grid-cols-2 gap-4">
 				<div>
 					<label class="block text-sm font-medium text-slate-700 mb-1">Duração (Dias)</label>
-					<input v-model.number="formState.duration" type="number" min="1" class="w-full rounded border-slate-300 shadow-sm p-2 border focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+					<input v-model.number="formState.duration" type="number" min="1" class="w-full rounded border-slate-300 shadow-sm p-2 border focus:ring-2 focus:ring-blue-500 focus:outline-none bg-slate-50" title="Calculado automaticamente" />
+					<span class="text-[10px] text-slate-400">Automático (Base na capacity)</span>
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-slate-700 mb-1">Dependência</label>

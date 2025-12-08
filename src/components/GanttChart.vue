@@ -46,9 +46,14 @@ const getInitials = (name: string) => {
 		.toUpperCase()
 }
 
+// ATUALIZAÇÃO: Busca capacidade dinâmica
 const isOverloaded = (task: Task) => {
 	if (!task.effort || !task.duration) return false
-	return task.effort > task.duration * 8
+
+	const member = config.value.teamMembers.find(m => m.name === task.responsible)
+	const capacity = member ? member.capacity : 8
+
+	return task.effort > task.duration * capacity
 }
 </script>
 
@@ -139,9 +144,7 @@ const isOverloaded = (task: Task) => {
 								class="absolute h-7 rounded-md shadow-sm text-[11px] text-white flex items-center px-2 cursor-pointer hover:ring-2 ring-white ring-offset-2 ring-offset-slate-100 transition-all z-10 overflow-hidden"
 								:class="{
 									'ring-2 ring-blue-500 ring-offset-2 ring-offset-white': editingTask?.id === task.id,
-									'border-2 border-amber-400': isOverloaded(task) /* Borda amarela se sobrecarregada */,
-
-									/* Estilos do Caminho Crítico */
+									'border-2 border-amber-400': isOverloaded(task),
 									'ring-2 ring-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)] z-20': showCriticalPath && criticalPathIds.includes(task.id),
 									'opacity-40 grayscale': showCriticalPath && !criticalPathIds.includes(task.id) && editingTask?.id !== task.id,
 								}"
