@@ -46,7 +46,6 @@ const getInitials = (name: string) => {
 		.toUpperCase()
 }
 
-// ATUALIZAÇÃO: Busca capacidade dinâmica
 const isOverloaded = (task: Task) => {
 	if (!task.effort || !task.duration) return false
 
