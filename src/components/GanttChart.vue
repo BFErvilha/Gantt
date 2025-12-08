@@ -1,20 +1,19 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useGantt } from '@/composables/useGantt'
+import { ref, computed } from 'vue'
+import { useGantt, type Task } from '@/composables/useGantt'
 import { format, addDays, startOfDay, isWeekend, differenceInCalendarDays } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
-// Recuperamos a config para acessar a lista de holidays
-const { computedTasks, config, totalProjectDays, setEditingTask, editingTask } = useGantt()
+const { computedTasks, config, totalProjectDays, setEditingTask, editingTask, criticalPathIds } = useGantt()
 const cellWidth = 40
+
+const showCriticalPath = ref(false)
 
 const timelineDates = computed(() => {
 	const start = startOfDay(new Date(config.value.projectStartDate))
 	return Array.from({ length: totalProjectDays.value }, (_, i) => {
 		const date = addDays(start, i)
 		const dateString = format(date, 'yyyy-MM-dd')
-
-		// Verifica se é feriado olhando a lista na configuração
 		const isHoliday = config.value.holidays.includes(dateString)
 		const isWknd = isWeekend(date)
 
@@ -24,7 +23,7 @@ const timelineDates = computed(() => {
 			dayName: format(date, 'EEEEEE', { locale: ptBR }),
 			fullDate: format(date, 'dd/MM/yyyy'),
 			isWeekend: isWknd,
-			isHoliday: isHoliday, // Nova propriedade
+			isHoliday: isHoliday,
 		}
 	})
 })
@@ -36,6 +35,21 @@ const deadlinePosition = computed(() => {
 })
 
 const containerWidth = computed(() => totalProjectDays.value * cellWidth)
+
+const getInitials = (name: string) => {
+	if (!name) return '?'
+	return name
+		.split(' ')
+		.map(n => n[0])
+		.slice(0, 2)
+		.join('')
+		.toUpperCase()
+}
+
+const isOverloaded = (task: Task) => {
+	if (!task.effort || !task.duration) return false
+	return task.effort > task.duration * 8
+}
 </script>
 
 <template>
@@ -44,18 +58,32 @@ const containerWidth = computed(() => totalProjectDays.value * cellWidth)
 			<h2 class="font-bold text-slate-700 flex items-center gap-2">Visualização Gantt</h2>
 
 			<div class="flex items-center gap-4 text-xs font-medium text-slate-600">
+				<button
+					@click="showCriticalPath = !showCriticalPath"
+					class="flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all text-xs font-bold mr-4"
+					:class="showCriticalPath ? 'bg-red-100 text-red-700 border-red-200 shadow-sm ring-1 ring-red-300' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'"
+				>
+					<span class="relative flex h-2 w-2">
+						<span v-if="showCriticalPath" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+						<span class="relative inline-flex rounded-full h-2 w-2" :class="showCriticalPath ? 'bg-red-500' : 'bg-slate-400'"></span>
+					</span>
+					Caminho Crítico
+				</button>
+
 				<div class="flex gap-2 mr-4 border-r border-slate-200 pr-4">
-					<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500"></span> Front</span>
-					<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span> Back</span>
+					<span class="flex items-center gap-1" title="Exemplo de ícone de responsável">
+						<span class="w-4 h-4 rounded-full bg-slate-100 border border-slate-300 flex items-center justify-center text-[8px] font-bold text-slate-600">JS</span>
+						Responsável
+					</span>
+					<span class="flex items-center gap-1" title="Aparece quando horas > dias úteis">
+						<span class="text-amber-500 font-bold">⚠️</span>
+						Sobrecarga
+					</span>
 				</div>
 
 				<div class="flex items-center gap-1">
 					<span class="w-3 h-3 bg-purple-100 rounded border border-purple-200"></span>
-					Feriado/Off
-				</div>
-				<div class="flex items-center gap-1">
-					<span class="w-3 h-3 bg-red-500 rounded-full opacity-20 border border-red-500"></span>
-					Fim de Semana
+					Feriado
 				</div>
 				<div class="flex items-center gap-1">
 					<span class="w-0.5 h-3 bg-red-500"></span>
@@ -109,7 +137,14 @@ const containerWidth = computed(() => totalProjectDays.value * cellWidth)
 
 							<div
 								class="absolute h-7 rounded-md shadow-sm text-[11px] text-white flex items-center px-2 cursor-pointer hover:ring-2 ring-white ring-offset-2 ring-offset-slate-100 transition-all z-10 overflow-hidden"
-								:class="{ 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white': editingTask?.id === task.id }"
+								:class="{
+									'ring-2 ring-blue-500 ring-offset-2 ring-offset-white': editingTask?.id === task.id,
+									'border-2 border-amber-400': isOverloaded(task) /* Borda amarela se sobrecarregada */,
+
+									/* Estilos do Caminho Crítico */
+									'ring-2 ring-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)] z-20': showCriticalPath && criticalPathIds.includes(task.id),
+									'opacity-40 grayscale': showCriticalPath && !criticalPathIds.includes(task.id) && editingTask?.id !== task.id,
+								}"
 								@click="setEditingTask(task)"
 								:style="{
 									left: (task.offsetDays || 0) * cellWidth + 'px',
@@ -117,18 +152,30 @@ const containerWidth = computed(() => totalProjectDays.value * cellWidth)
 									backgroundColor: task.color,
 								}"
 							>
-								<span class="truncate font-medium drop-shadow-md">
+								<span class="truncate font-medium drop-shadow-md flex items-center gap-2">
 									{{ task.name }}
-									<span class="opacity-75 text-[10px] ml-1">({{ task.duration }}d)</span>
+									<span v-if="isOverloaded(task)" class="bg-amber-100 text-amber-700 rounded-full px-1 text-[9px] font-bold">⚠️</span>
 								</span>
+
+								<div v-if="task.responsible" class="absolute right-1 top-0.5 w-5 h-5 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-[9px] font-bold border border-white/40 shadow-sm" :title="`Responsável: ${task.responsible}`">
+									{{ getInitials(task.responsible) }}
+								</div>
 							</div>
 
-							<div class="absolute hidden group-hover:flex items-center gap-2 z-30 bg-slate-800 text-white text-xs px-2 py-1 rounded shadow-lg -top-8 pointer-events-none whitespace-nowrap" :style="{ left: (task.offsetDays || 0) * cellWidth + 10 + 'px' }">
-								<span class="font-bold">{{ task.name }}</span>
-								<span class="opacity-75">|</span>
-								<span class="uppercase text-[10px] bg-white/20 px-1 rounded">{{ task.type || 'other' }}</span>
-								<span class="opacity-75">|</span>
-								<span>{{ task.formattedStartDate }} até {{ task.formattedEndDate }}</span>
+							<div class="absolute hidden group-hover:flex flex-col gap-1 z-30 bg-slate-800 text-white text-xs px-3 py-2 rounded shadow-lg -top-16 pointer-events-none whitespace-nowrap" :style="{ left: (task.offsetDays || 0) * cellWidth + 10 + 'px' }">
+								<div class="font-bold flex justify-between gap-4">
+									{{ task.name }}
+									<span v-if="criticalPathIds.includes(task.id)" class="text-[9px] bg-red-500 px-1 rounded">CRÍTICO</span>
+									<span class="uppercase text-[9px] bg-white/20 px-1 rounded h-fit">{{ task.type || 'other' }}</span>
+								</div>
+								<div class="text-slate-300 text-[10px]">{{ task.formattedStartDate }} - {{ task.formattedEndDate }}</div>
+								<div class="border-t border-slate-600 my-1"></div>
+								<div class="flex items-center gap-3 text-[10px]">
+									<span v-if="task.responsible">👤 {{ task.responsible }}</span>
+									<span v-if="task.effort">⏱️ {{ task.effort }}h</span>
+									<span>📅 {{ task.duration }} dias</span>
+								</div>
+								<div v-if="isOverloaded(task)" class="text-amber-400 font-bold text-[10px] mt-1">⚠️ Atenção: Pouco tempo para o esforço!</div>
 							</div>
 						</div>
 					</div>
