@@ -4,7 +4,7 @@ import path from 'path'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-	base: '/gantt-ficator/',
+	base: '/Gantt/',
 	plugins: [
 		vue(),
 		VitePWA({
