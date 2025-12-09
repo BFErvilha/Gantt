@@ -3,7 +3,7 @@ import { ref, watch, computed } from 'vue'
 import { useGantt, type Task } from '@/composables/useGantt'
 import ConfirmationModal from './ConfirmationModal.vue'
 
-const { tasks, addTask, editingTask, updateTask, cancelEditing, removeTask, config, isTaskModalOpen } = useGantt()
+const { tasks, addTask, editingTask, updateTask, cancelEditing, removeTask, toggleTaskCompletion, config, isTaskModalOpen } = useGantt()
 
 const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
 
@@ -15,10 +15,12 @@ const defaultFormState = {
 	type: 'frontend' as Task['type'],
 	responsible: '',
 	effort: 0,
+	sprintId: '',
 }
 
 const formState = ref({ ...defaultFormState })
 const isDeleteModalOpen = ref(false)
+const isCompleteModalOpen = ref(false)
 
 watch(editingTask, newTask => {
 	if (newTask) {
@@ -30,6 +32,7 @@ watch(editingTask, newTask => {
 			type: newTask.type || 'other',
 			responsible: newTask.responsible || '',
 			effort: newTask.effort || 0,
+			sprintId: newTask.sprintId || '',
 		}
 	} else {
 		resetForm()
@@ -64,6 +67,7 @@ const capacityAlert = computed(() => {
 const resetForm = () => {
 	formState.value = { ...defaultFormState, color: colors[Math.floor(Math.random() * colors.length)] }
 	isDeleteModalOpen.value = false
+	isCompleteModalOpen.value = false
 }
 
 const submit = () => {
@@ -74,6 +78,8 @@ const submit = () => {
 			...editingTask.value,
 			...formState.value,
 			dependencyId: formState.value.dependencyId || null,
+			sprintId: formState.value.sprintId || undefined,
+			isNotPlanned: !formState.value.sprintId,
 		})
 	} else {
 		addTask({
@@ -84,6 +90,7 @@ const submit = () => {
 			type: formState.value.type,
 			responsible: formState.value.responsible,
 			effort: formState.value.effort,
+			sprintId: formState.value.sprintId || undefined,
 		})
 		cancelEditing()
 	}
@@ -101,6 +108,18 @@ const confirmDelete = () => {
 	if (editingTask.value) {
 		removeTask(editingTask.value.id)
 		isDeleteModalOpen.value = false
+	}
+}
+
+const requestCompletion = () => {
+	if (editingTask.value) isCompleteModalOpen.value = true
+}
+
+const confirmCompletion = () => {
+	if (editingTask.value) {
+		toggleTaskCompletion(editingTask.value.id)
+		isCompleteModalOpen.value = false
+		cancelEditing()
 	}
 }
 </script>
@@ -131,7 +150,7 @@ const confirmDelete = () => {
 								<option value="frontend">Front-end</option>
 								<option value="backend">Back-end</option>
 								<option value="qualidade">Qualidade</option>
-								<option value="outro">Outro</option>
+								<option value="other">Outro</option>
 							</select>
 						</div>
 						<div>
@@ -151,6 +170,14 @@ const confirmDelete = () => {
 					</div>
 
 					<hr class="border-slate-100" />
+
+					<div>
+						<label class="block text-sm font-medium text-slate-600 mb-1">Sprint (Opcional)</label>
+						<select v-model="formState.sprintId" class="w-full rounded-lg border-slate-300 shadow-sm p-2.5 border bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none text-sm">
+							<option value="">-- Sem Sprint (Não Planejado) --</option>
+							<option v-for="s in config.sprints" :key="s.id" :value="s.id">{{ s.name }}</option>
+						</select>
+					</div>
 
 					<div class="grid grid-cols-2 gap-5">
 						<div>
@@ -201,17 +228,43 @@ const confirmDelete = () => {
 								{{ editingTask ? 'Salvar Alterações' : 'Criar Tarefa' }}
 							</button>
 						</div>
-						<button v-if="editingTask" type="button" @click="requestDelete" class="w-full text-red-500 hover:text-red-700 py-2 text-xs font-bold flex items-center justify-center gap-1 transition-colors">
-							<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-							</svg>
-							Excluir Tarefa
-						</button>
+
+						<div v-if="editingTask" class="flex gap-3 pt-2">
+							<button type="button" @click="requestDelete" class="flex-1 text-red-500 hover:text-red-700 py-2 text-xs font-bold flex items-center justify-center gap-1 transition-colors border border-transparent hover:border-red-100 rounded">
+								<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+								</svg>
+								Excluir
+							</button>
+
+							<button
+								type="button"
+								@click="requestCompletion"
+								class="flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1 transition-colors border border-transparent rounded"
+								:class="editingTask.isCompleted ? 'text-slate-500 hover:text-slate-700 hover:bg-slate-100' : 'text-green-600 hover:text-green-700 hover:bg-green-50'"
+							>
+								<svg v-if="!editingTask.isCompleted" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+								</svg>
+								<svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+								</svg>
+								{{ editingTask.isCompleted ? 'Reabrir Tarefa' : 'Concluir Tarefa' }}
+							</button>
+						</div>
 					</div>
 				</form>
 			</div>
 		</div>
 
 		<ConfirmationModal :is-open="isDeleteModalOpen" title="Excluir Tarefa" :message="`Tem a certeza que deseja excluir a tarefa '${editingTask?.name}'?`" @confirm="confirmDelete" @cancel="isDeleteModalOpen = false" />
+
+		<ConfirmationModal
+			:is-open="isCompleteModalOpen"
+			:title="editingTask?.isCompleted ? 'Reabrir Tarefa' : 'Concluir Tarefa'"
+			:message="editingTask?.isCompleted ? `Deseja marcar '${editingTask?.name}' como em andamento novamente?` : `Confirmar a conclusão da tarefa '${editingTask?.name}'?`"
+			@confirm="confirmCompletion"
+			@cancel="isCompleteModalOpen = false"
+		/>
 	</div>
 </template>

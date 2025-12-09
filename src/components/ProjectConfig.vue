@@ -3,10 +3,11 @@ import { ref } from 'vue'
 import { useGantt } from '@/composables/useGantt'
 import { format, parseISO } from 'date-fns'
 
-const { config, addHoliday, removeHoliday, addMember, updateMember, removeMember, addMemberDayOff, removeMemberDayOff, automaticRisks, projectCapacityStats } = useGantt()
+const { config, addHoliday, removeHoliday, addMember, updateMember, removeMember, addMemberDayOff, removeMemberDayOff, automaticRisks, projectCapacityStats, addSprint, removeSprint } = useGantt()
 
 const activeSections = ref({
 	period: true,
+	sprints: true,
 	team: false,
 	holidays: false,
 })
@@ -18,8 +19,24 @@ const toggleSection = (section: keyof typeof activeSections.value) => {
 const newHolidayDate = ref('')
 const memberNameInput = ref('')
 const memberCapacityInput = ref(8)
+const memberSectorInput = ref('')
 const editingMemberIndex = ref<number | null>(null)
 const memberDayOffInput = ref('')
+
+const sprintName = ref('')
+const sprintStart = ref('')
+const sprintEnd = ref('')
+
+const availableSectors = ['Frontend', 'Backend', 'Fullstack', 'QA', 'Design', 'Produto', 'DevOps', 'Gestão']
+
+const handleAddSprint = () => {
+	if (sprintName.value && sprintStart.value && sprintEnd.value) {
+		addSprint(sprintName.value, sprintStart.value, sprintEnd.value)
+		sprintName.value = ''
+		sprintStart.value = ''
+		sprintEnd.value = ''
+	}
+}
 
 const handleAddHoliday = () => {
 	if (newHolidayDate.value) {
@@ -30,13 +47,15 @@ const handleAddHoliday = () => {
 
 const handleSaveMember = () => {
 	if (memberNameInput.value && memberCapacityInput.value > 0) {
+		const sector = memberSectorInput.value || 'Outro'
 		if (editingMemberIndex.value !== null) {
-			updateMember(editingMemberIndex.value, memberNameInput.value, memberCapacityInput.value)
+			updateMember(editingMemberIndex.value, memberNameInput.value, memberCapacityInput.value, sector)
 			cancelMemberEdit()
 		} else {
-			addMember(memberNameInput.value, memberCapacityInput.value)
+			addMember(memberNameInput.value, memberCapacityInput.value, sector)
 			memberNameInput.value = ''
 			memberCapacityInput.value = 8
+			memberSectorInput.value = ''
 		}
 	}
 }
@@ -45,12 +64,14 @@ const startEditMember = (index: number) => {
 	const member = config.value.teamMembers[index]
 	memberNameInput.value = member.name
 	memberCapacityInput.value = member.capacity
+	memberSectorInput.value = member.sector || ''
 	editingMemberIndex.value = index
 }
 
 const cancelMemberEdit = () => {
 	memberNameInput.value = ''
 	memberCapacityInput.value = 8
+	memberSectorInput.value = ''
 	editingMemberIndex.value = null
 	memberDayOffInput.value = ''
 }
@@ -77,7 +98,7 @@ const formatDateBr = (isoDate: string) => format(parseISO(isoDate), 'dd/MM/yyyy'
 			<button @click="toggleSection('period')" class="w-full flex justify-between items-center p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left">
 				<span class="font-bold text-slate-700 text-sm flex items-center gap-2">
 					<svg class="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-					Período do Projeto
+					Início do Projeto
 				</span>
 				<svg class="w-4 h-4 text-slate-400 transition-transform duration-200" :class="{ 'rotate-180': activeSections.period }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
@@ -86,16 +107,54 @@ const formatDateBr = (isoDate: string) => format(parseISO(isoDate), 'dd/MM/yyyy'
 
 			<div v-show="activeSections.period" class="p-4 bg-white border-t border-slate-100 space-y-4">
 				<div>
-					<label class="block text-xs font-bold text-slate-500 uppercase mb-1">Início</label>
+					<label class="block text-xs font-bold text-slate-500 uppercase mb-1">Data Inicial</label>
 					<input v-model="config.projectStartDate" type="date" class="w-full text-sm rounded border-slate-300 shadow-sm p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" />
-				</div>
-				<div>
-					<label class="block text-xs font-bold text-slate-500 uppercase mb-1">Deadline</label>
-					<input v-model="config.deadline" type="date" class="w-full text-sm rounded border-slate-300 shadow-sm p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" />
 				</div>
 				<div class="flex items-center gap-2 pt-2">
 					<input v-model="config.skipWeekends" id="skipWeekends" type="checkbox" class="rounded border-slate-300 text-blue-600 shadow-sm focus:ring-blue-200" />
 					<label for="skipWeekends" class="text-sm font-medium text-slate-700 cursor-pointer select-none">Pular Fins de Semana</label>
+				</div>
+			</div>
+		</div>
+
+		<div class="border border-slate-200 rounded-lg overflow-hidden">
+			<button @click="toggleSection('sprints')" class="w-full flex justify-between items-center p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left">
+				<span class="font-bold text-slate-700 text-sm flex items-center gap-2">
+					<svg class="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+					</svg>
+					Gestão de Sprints
+				</span>
+				<svg class="w-4 h-4 text-slate-400 transition-transform duration-200" :class="{ 'rotate-180': activeSections.sprints }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+				</svg>
+			</button>
+
+			<div v-show="activeSections.sprints" class="p-4 bg-white border-t border-slate-100">
+				<div class="flex flex-col gap-2 mb-4 bg-purple-50/50 p-3 rounded border border-purple-100">
+					<input v-model="sprintName" type="text" placeholder="Nome (Ex: Sprint 1)" class="w-full text-sm rounded border-slate-300 shadow-sm p-2 focus:outline-none focus:border-purple-400" />
+					<div class="flex gap-2">
+						<div class="flex-1">
+							<label class="text-[10px] uppercase font-bold text-slate-400">Início</label>
+							<input v-model="sprintStart" type="date" class="w-full text-sm rounded border-slate-300 shadow-sm p-2" />
+						</div>
+						<div class="flex-1">
+							<label class="text-[10px] uppercase font-bold text-slate-400">Fim</label>
+							<input v-model="sprintEnd" type="date" class="w-full text-sm rounded border-slate-300 shadow-sm p-2" />
+						</div>
+					</div>
+					<button @click="handleAddSprint" class="mt-1 w-full bg-purple-600 text-white border border-purple-700 px-3 py-1.5 rounded text-xs uppercase font-bold hover:bg-purple-700 transition-colors shadow-sm">Adicionar Sprint</button>
+				</div>
+
+				<div class="space-y-2">
+					<div v-if="config.sprints.length === 0" class="text-xs text-slate-400 italic w-full text-center py-2">Nenhuma sprint cadastrada.</div>
+					<div v-for="sprint in config.sprints" :key="sprint.id" class="flex items-center justify-between bg-slate-50 p-2 rounded border border-slate-100 hover:border-slate-300 transition-colors">
+						<div class="flex flex-col">
+							<span class="text-sm font-bold text-slate-700">{{ sprint.name }}</span>
+							<span class="text-[10px] text-slate-500">{{ formatDateBr(sprint.startDate) }} até {{ formatDateBr(sprint.endDate) }}</span>
+						</div>
+						<button @click="removeSprint(sprint.id)" class="text-slate-400 hover:text-red-500 font-bold p-1">&times;</button>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -123,6 +182,13 @@ const formatDateBr = (isoDate: string) => format(parseISO(isoDate), 'dd/MM/yyyy'
 					<div class="flex gap-2">
 						<input v-model="memberNameInput" type="text" placeholder="Nome" class="flex-1 text-sm rounded border-slate-300 shadow-sm p-2 focus:outline-none focus:border-blue-400" />
 						<input v-model.number="memberCapacityInput" type="number" placeholder="8h" min="1" max="24" class="w-16 text-sm rounded border-slate-300 shadow-sm p-2 focus:outline-none focus:border-blue-400" title="Capacidade diária" />
+					</div>
+
+					<div>
+						<input list="sectors-list" v-model="memberSectorInput" placeholder="Setor (Ex: Frontend) - Selecione ou Digite" class="w-full text-sm rounded border-slate-300 shadow-sm p-2 focus:outline-none focus:border-blue-400" />
+						<datalist id="sectors-list">
+							<option v-for="s in availableSectors" :key="s" :value="s"></option>
+						</datalist>
 					</div>
 
 					<div v-if="editingMemberIndex !== null" class="mt-2 border-t border-blue-200 pt-2">
@@ -156,7 +222,10 @@ const formatDateBr = (isoDate: string) => format(parseISO(isoDate), 'dd/MM/yyyy'
 								{{ member.name.substring(0, 2).toUpperCase() }}
 							</span>
 							<div class="flex flex-col leading-none">
-								<span class="text-sm font-medium text-slate-700">{{ member.name }}</span>
+								<span class="text-sm font-medium text-slate-700 flex items-center gap-1">
+									{{ member.name }}
+									<span class="text-[9px] bg-slate-200 px-1 rounded text-slate-500 font-bold uppercase">{{ member.sector || 'Outro' }}</span>
+								</span>
 								<span class="text-[10px] text-slate-500 mt-0.5"
 									>{{ member.capacity }}h/dia <span v-if="member.daysOff?.length" class="text-blue-500 font-medium">• {{ member.daysOff.length }} folga(s)</span></span
 								>
@@ -194,7 +263,7 @@ const formatDateBr = (isoDate: string) => format(parseISO(isoDate), 'dd/MM/yyyy'
 			<button @click="toggleSection('holidays')" class="w-full flex justify-between items-center p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left">
 				<span class="font-bold text-slate-700 text-sm flex items-center gap-2">
 					<svg class="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-					Dayoff Coletivo
+					Feriados e Folgas
 				</span>
 				<svg class="w-4 h-4 text-slate-400 transition-transform duration-200" :class="{ 'rotate-180': activeSections.holidays }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useGantt, type Task } from '@/composables/useGantt'
-import { format, addDays, startOfDay, isWeekend, differenceInCalendarDays, startOfWeek, endOfWeek } from 'date-fns'
+import { format, addDays, startOfDay, isWeekend, differenceInCalendarDays, startOfWeek, endOfWeek, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
 const { filteredTasks, config, totalProjectDays, setEditingTask, editingTask, criticalPathIds, viewMode, visibleDateRange, setViewMode, navigateView, currentViewDate, filterSearch, filterResponsible, filterType, moveTask } = useGantt()
@@ -213,6 +213,7 @@ const getInitials = (name: string) => {
 
 const isOverloaded = (task: Task) => {
 	if (!task.effort || !task.duration) return false
+	if (task.isCompleted) return false
 	const member = config.value.teamMembers.find(m => m.name === task.responsible)
 	const capacity = member ? member.capacity : 8
 	return task.effort > task.duration * capacity
@@ -345,14 +346,18 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 									'border-2 border-amber-400': isOverloaded(task),
 									'ring-2 ring-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)] z-20': showCriticalPath && criticalPathIds.includes(task.id),
 									'opacity-40 grayscale': showCriticalPath && !criticalPathIds.includes(task.id) && editingTask?.id !== task.id,
+									'opacity-60': task.isCompleted,
 									'shadow-lg scale-[1.02]': isDragging && draggingTaskId === task.id,
+									'border-2 border-dashed border-slate-300': task.isNotPlanned && !isOverloaded(task),
 								}"
 								@mousedown="(e) => onTaskMouseDown(e, task, parseInt(getTaskStyle(task).left as string))"
 								:style="getTaskStyle(task)"
 							>
-								<span class="truncate font-medium drop-shadow-md flex items-center gap-2">
+								<span class="truncate font-medium drop-shadow-md flex items-center gap-2" :class="{ 'line-through text-white/80': task.isCompleted }">
 									{{ task.name }}
 									<span v-if="isOverloaded(task)" class="bg-amber-100 text-amber-700 rounded-full px-1 text-[9px] font-bold">⚠️</span>
+									<span v-if="task.isCompleted" class="bg-green-500 text-white rounded-full px-1 text-[9px] font-bold">✓</span>
+									<span v-if="task.isNotPlanned" class="bg-slate-700 text-white border border-white/30 rounded px-1 text-[8px] font-bold" title="Não Planejada">NP</span>
 								</span>
 								<div v-if="task.responsible" class="absolute right-1 top-0.5 w-5 h-5 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-[9px] font-bold border border-white/40 shadow-sm" :title="`Responsável: ${task.responsible}`">
 									{{ getInitials(task.responsible) }}
@@ -365,7 +370,7 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 								:style="{ left: Math.max(0, parseInt(getTaskStyle(task).left as string)) + 'px' }"
 							>
 								<div class="font-bold flex justify-between gap-4">
-									{{ task.name }}
+									<span :class="{ 'line-through': task.isCompleted }">{{ task.name }}</span>
 									<span v-if="criticalPathIds.includes(task.id)" class="text-[9px] bg-red-500 px-1 rounded">CRÍTICO</span>
 									<span class="uppercase text-[9px] bg-white/20 px-1 rounded h-fit">{{ task.type || 'other' }}</span>
 								</div>
@@ -377,6 +382,8 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 									<span>📅 {{ task.duration }} dias</span>
 								</div>
 								<div v-if="isOverloaded(task)" class="text-amber-400 font-bold text-[10px] mt-1">⚠️ Atenção: Pouco tempo para o esforço!</div>
+								<div v-if="task.isNotPlanned" class="text-slate-300 font-bold text-[10px] mt-1 italic">📌 Tarefa Não Planejada</div>
+								<div v-if="task.isCompleted" class="text-green-400 font-bold text-[10px] mt-1">✅ Concluída em {{ task.completedDate ? format(parseISO(task.completedDate), 'dd/MM') : '' }}</div>
 							</div>
 						</div>
 					</div>
