@@ -9,29 +9,23 @@ const emit = defineEmits(['confirm', 'cancel'])
 </script>
 
 <template>
-	<Teleport to="body">
-		<div v-if="isOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4">
-			<div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" @click="emit('cancel')"></div>
-
-			<div class="relative bg-white rounded-lg shadow-xl max-w-md w-full p-6 border border-slate-200 transform transition-all scale-100">
-				<div class="flex items-start gap-4">
-					<div class="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
-						<svg class="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-						</svg>
-					</div>
-
-					<div class="flex-1">
-						<h3 class="text-lg font-bold text-slate-800">{{ title }}</h3>
-						<p class="text-sm text-slate-600 mt-2">{{ message }}</p>
-					</div>
-				</div>
-
-				<div class="mt-6 flex justify-end gap-3">
-					<button @click="emit('cancel')" class="px-4 py-2 bg-white text-slate-700 border border-slate-300 rounded hover:bg-slate-50 font-medium transition-colors text-sm">Cancelar</button>
-					<button @click="emit('confirm')" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 font-medium transition-colors text-sm shadow-sm">Sim, excluir</button>
-				</div>
+	<div v-if="isOpen" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+		<div class="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-full max-w-sm overflow-hidden transform transition-all">
+			<div class="p-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex justify-between items-center">
+				<h3 class="font-bold text-slate-800 dark:text-slate-100">{{ title }}</h3>
+				<button @click="emit('cancel')" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+					<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+						<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+					</svg>
+				</button>
+			</div>
+			<div class="p-6">
+				<p class="text-slate-600 dark:text-slate-300 text-sm">{{ message }}</p>
+			</div>
+			<div class="p-4 bg-slate-50 dark:bg-slate-900/50 flex justify-end gap-3">
+				<button @click="emit('cancel')" class="px-4 py-2 rounded text-slate-600 dark:text-slate-300 text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Cancelar</button>
+				<button @click="emit('confirm')" class="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm">Confirmar</button>
 			</div>
 		</div>
-	</Teleport>
+	</div>
 </template>

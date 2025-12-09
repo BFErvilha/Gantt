@@ -1,10 +1,18 @@
 import { ref, computed, watch } from 'vue'
-import { addDays, format, startOfDay, isWeekend, differenceInCalendarDays, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addMonths, addWeeks } from 'date-fns'
+import { addDays, format, startOfDay, isWeekend, differenceInCalendarDays, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addMonths, addWeeks, isAfter, isBefore } from 'date-fns'
 
 export interface TeamMember {
 	name: string
 	capacity: number
 	daysOff: string[]
+	sector: string
+}
+
+export interface Sprint {
+	id: string
+	name: string
+	startDate: string
+	endDate: string
 }
 
 export interface Task {
@@ -13,7 +21,7 @@ export interface Task {
 	duration: number
 	dependencyId: string | null
 	color: string
-	type: 'frontend' | 'backend' | 'other'
+	type: 'frontend' | 'backend' | 'qualidade' | 'other'
 	responsible?: string
 	effort?: number
 	manualStartDate?: string
@@ -23,6 +31,10 @@ export interface Task {
 	calendarDuration?: number
 	formattedStartDate?: string
 	formattedEndDate?: string
+	sprintId?: string
+	isNotPlanned?: boolean
+	isCompleted?: boolean
+	completedDate?: string
 }
 
 export interface ProjectConfig {
@@ -32,6 +44,7 @@ export interface ProjectConfig {
 	holidays: string[]
 	risks: string[]
 	teamMembers: TeamMember[]
+	sprints: Sprint[]
 }
 
 export type ViewMode = 'project' | 'month' | 'week'
@@ -41,7 +54,14 @@ const STORAGE_KEY_CONFIG = 'gantt-pro-config'
 
 const loadInitialTasks = (): Task[] => {
 	const saved = localStorage.getItem(STORAGE_KEY_TASKS)
-	return saved ? JSON.parse(saved) : []
+	if (saved) {
+		return JSON.parse(saved).map((t: any) => ({
+			...t,
+			isNotPlanned: t.isNotPlanned ?? false,
+			isCompleted: t.isCompleted ?? false,
+		}))
+	}
+	return []
 }
 
 const loadInitialConfig = (): ProjectConfig => {
@@ -51,8 +71,8 @@ const loadInitialConfig = (): ProjectConfig => {
 		let members: TeamMember[] = []
 		if (Array.isArray(parsed.teamMembers)) {
 			members = parsed.teamMembers.map((m: any) => {
-				if (typeof m === 'string') return { name: m, capacity: 8, daysOff: [] }
-				return { ...m, daysOff: m.daysOff || [] }
+				if (typeof m === 'string') return { name: m, capacity: 8, daysOff: [], sector: 'Outro' }
+				return { ...m, daysOff: m.daysOff || [], sector: m.sector || 'Outro' }
 			})
 		}
 		return {
@@ -60,6 +80,7 @@ const loadInitialConfig = (): ProjectConfig => {
 			risks: [],
 			...parsed,
 			teamMembers: members,
+			sprints: parsed.sprints || [],
 		}
 	}
 	return {
@@ -69,6 +90,7 @@ const loadInitialConfig = (): ProjectConfig => {
 		holidays: [],
 		risks: [],
 		teamMembers: [],
+		sprints: [],
 	}
 }
 
@@ -101,6 +123,23 @@ export function useGantt() {
 			currentViewDate.value = startOfDay(new Date(newDate))
 		},
 	)
+
+	const projectDeadlineComputed = computed(() => {
+		let maxDate = startOfDay(new Date(config.value.projectStartDate))
+
+		if (config.value.sprints.length > 0) {
+			config.value.sprints.forEach(s => {
+				const end = startOfDay(parseISO(s.endDate))
+				if (isAfter(end, maxDate)) maxDate = end
+			})
+		}
+
+		computedTasks.value.forEach(t => {
+			if (t.endDate && isAfter(t.endDate, maxDate)) maxDate = t.endDate
+		})
+
+		return addDays(maxDate, 7)
+	})
 
 	const isNonWorkingDay = (date: Date, responsibleName?: string) => {
 		const dateString = format(date, 'yyyy-MM-dd')
@@ -159,7 +198,16 @@ export function useGantt() {
 						start = getNextValidStartDate(tentativeStart, task.responsible)
 					}
 				} else {
-					start = getNextValidStartDate(projectStart, task.responsible)
+					if (task.sprintId) {
+						const sprint = config.value.sprints.find(s => s.id === task.sprintId)
+						if (sprint) {
+							start = getNextValidStartDate(parseISO(sprint.startDate), task.responsible)
+						} else {
+							start = getNextValidStartDate(projectStart, task.responsible)
+						}
+					} else {
+						start = getNextValidStartDate(projectStart, task.responsible)
+					}
 				}
 
 				const end = calculateEndDate(start, task.duration, task.responsible)
@@ -199,15 +247,12 @@ export function useGantt() {
 	const visibleDateRange = computed(() => {
 		const cursor = startOfDay(currentViewDate.value)
 		const projectStart = startOfDay(new Date(config.value.projectStartDate))
-		const projectEnd = startOfDay(new Date(config.value.deadline))
+		const projectEnd = projectDeadlineComputed.value
+
 		if (viewMode.value === 'week') return { start: startOfWeek(cursor, { weekStartsOn: 0 }), end: endOfWeek(cursor, { weekStartsOn: 0 }) }
 		if (viewMode.value === 'month') return { start: startOfMonth(cursor), end: endOfMonth(cursor) }
-		let endLimit = projectEnd
-		if (computedTasks.value.length > 0) {
-			const maxTaskEnd = computedTasks.value.reduce((max, t) => (t.endDate && t.endDate > max ? t.endDate : max), projectStart)
-			if (maxTaskEnd > endLimit) endLimit = maxTaskEnd
-		}
-		return { start: projectStart, end: addDays(endLimit, 7) }
+
+		return { start: projectStart, end: projectEnd }
 	})
 
 	const navigateView = (direction: 'prev' | 'next') => {
@@ -229,6 +274,9 @@ export function useGantt() {
 			type: t.type || 'other',
 			responsible: t.responsible || '',
 			effort: t.effort || 0,
+			sprintId: t.sprintId || undefined,
+			isNotPlanned: !t.sprintId,
+			isCompleted: false,
 		})) as Task[]
 	}
 	const totalProjectDays = computed(() => differenceInCalendarDays(visibleDateRange.value.end, visibleDateRange.value.start) + 1)
@@ -243,14 +291,20 @@ export function useGantt() {
 			type: task.type || 'other',
 			responsible: task.responsible || '',
 			effort: task.effort || 0,
+			sprintId: task.sprintId,
+			isNotPlanned: !task.sprintId,
+			isCompleted: false,
+			completedDate: undefined,
 		})
 	}
+
 	const updateTask = (updatedTask: Task) => {
 		const index = tasks.value.findIndex(t => t.id === updatedTask.id)
 		if (index !== -1) tasks.value[index] = { ...updatedTask }
 		editingTask.value = null
 		isTaskModalOpen.value = false
 	}
+
 	const removeTask = (id: string) => {
 		tasks.value = tasks.value.filter(t => t.id !== id)
 		tasks.value.forEach(t => {
@@ -259,6 +313,18 @@ export function useGantt() {
 		if (editingTask.value?.id === id) {
 			editingTask.value = null
 			isTaskModalOpen.value = false
+		}
+	}
+
+	const toggleTaskCompletion = (taskId: string) => {
+		const task = tasks.value.find(t => t.id === taskId)
+		if (task) {
+			task.isCompleted = !task.isCompleted
+			if (task.isCompleted) {
+				task.completedDate = format(new Date(), 'yyyy-MM-dd')
+			} else {
+				task.completedDate = undefined
+			}
 		}
 	}
 
@@ -296,13 +362,17 @@ export function useGantt() {
 	const removeRisk = (index: number) => {
 		config.value.risks.splice(index, 1)
 	}
-	const addMember = (name: string, capacity: number) => {
-		if (name && !config.value.teamMembers.some(m => m.name === name)) config.value.teamMembers.push({ name, capacity, daysOff: [] })
+
+	const addMember = (name: string, capacity: number, sector: string = 'Outro') => {
+		if (name && !config.value.teamMembers.some(m => m.name === name)) {
+			config.value.teamMembers.push({ name, capacity, daysOff: [], sector })
+		}
 	}
-	const updateMember = (index: number, newName: string, newCapacity: number) => {
+	const updateMember = (index: number, newName: string, newCapacity: number, newSector: string) => {
 		const oldName = config.value.teamMembers[index].name
 		config.value.teamMembers[index].name = newName
 		config.value.teamMembers[index].capacity = newCapacity
+		config.value.teamMembers[index].sector = newSector
 		if (oldName !== newName) {
 			tasks.value.forEach(t => {
 				if (t.responsible === oldName) t.responsible = newName
@@ -324,9 +394,26 @@ export function useGantt() {
 		if (member) member.daysOff = member.daysOff.filter(d => d !== date)
 	}
 
+	const addSprint = (name: string, startDate: string, endDate: string) => {
+		config.value.sprints.push({
+			id: crypto.randomUUID(),
+			name,
+			startDate,
+			endDate,
+		})
+		config.value.sprints.sort((a, b) => a.startDate.localeCompare(b.startDate))
+	}
+
+	const removeSprint = (id: string) => {
+		config.value.sprints = config.value.sprints.filter(s => s.id !== id)
+		tasks.value.forEach(t => {
+			if (t.sprintId === id) t.sprintId = undefined
+		})
+	}
+
 	const projectCapacityStats = computed(() => {
 		const start = startOfDay(new Date(config.value.projectStartDate))
-		const end = startOfDay(new Date(config.value.deadline))
+		const end = projectDeadlineComputed.value
 		let workingDays = 0
 		let current = start
 		while (current <= end) {
@@ -337,6 +424,7 @@ export function useGantt() {
 			name: m.name,
 			capacityPerDay: m.capacity,
 			totalCapacity: m.capacity * workingDays,
+			sector: m.sector,
 		}))
 		const totalTeamCapacity = memberStats.reduce((sum, m) => sum + m.totalCapacity, 0)
 		return { workingDays, totalTeamCapacity, memberStats }
@@ -344,48 +432,73 @@ export function useGantt() {
 
 	const automaticRisks = computed(() => {
 		const risks: string[] = []
-		if (computedTasks.value.length > 0) {
-			const projectStart = startOfDay(new Date(config.value.projectStartDate))
-			const deadlineDate = startOfDay(new Date(config.value.deadline))
-			const lastTaskDate = computedTasks.value.reduce((max, t) => (t.endDate && t.endDate > max ? t.endDate : max), projectStart)
-			if (lastTaskDate > deadlineDate) {
-				const daysLate = differenceInCalendarDays(lastTaskDate, deadlineDate)
-				risks.push(`CRÍTICO: O projeto terminará ${daysLate} dia(s) após o prazo final!`)
-			} else {
-				const margin = differenceInCalendarDays(deadlineDate, lastTaskDate)
-				if (margin < 3 && margin >= 0) risks.push(`ALERTA: Margem de segurança baixa (${margin} dias até o prazo).`)
-			}
-		}
+
+		let notPlannedEffort = 0
+		let totalEffort = 0
+
 		computedTasks.value.forEach(task => {
-			const responsibleMember = config.value.teamMembers.find(m => m.name === task.responsible)
-			const dailyCapacity = responsibleMember ? responsibleMember.capacity : 8
-			if (task.effort && task.duration && task.effort > task.duration * dailyCapacity) {
-				risks.push(`CAPACIDADE: "${task.name}" (${task.responsible || 'Sem resp.'}) requer ${task.effort}h. Limite: ${task.duration * dailyCapacity}h.`)
-			}
-			if (task.startDate && task.endDate) {
-				let hasConflict = false
-				let conflictType = ''
-				const hasGlobalHoliday = config.value.holidays.some(h => {
-					const hDate = startOfDay(parseISO(h))
-					return task.startDate! <= hDate && task.endDate! >= hDate
-				})
-				if (hasGlobalHoliday) {
-					hasConflict = true
-					conflictType = 'feriado'
+			if (!task.isCompleted) {
+				totalEffort += task.effort || 0
+				if (task.isNotPlanned) {
+					notPlannedEffort += task.effort || 0
 				}
-				if (!hasConflict && responsibleMember) {
-					const hasDayOff = responsibleMember.daysOff.some(d => {
-						const dDate = startOfDay(parseISO(d))
-						return task.startDate! <= dDate && task.endDate! >= dDate
-					})
-					if (hasDayOff) {
-						hasConflict = true
-						conflictType = 'folga pessoal'
+			}
+
+			if (!task.isCompleted) {
+				const responsibleMember = config.value.teamMembers.find(m => m.name === task.responsible)
+				const dailyCapacity = responsibleMember ? responsibleMember.capacity : 8
+
+				if (task.effort && task.duration && task.effort > task.duration * dailyCapacity) {
+					risks.push(`CAPACIDADE: "${task.name}" requer ${task.effort}h. Limite atual: ${task.duration * dailyCapacity}h.`)
+				}
+
+				if (task.sprintId && task.startDate && task.endDate) {
+					const sprint = config.value.sprints.find(s => s.id === task.sprintId)
+					if (sprint) {
+						const sprintStart = startOfDay(parseISO(sprint.startDate))
+						const sprintEnd = startOfDay(parseISO(sprint.endDate))
+
+						if (isBefore(task.startDate, sprintStart)) {
+							risks.push(`SPRINT: "${task.name}" começa antes da ${sprint.name} (${format(sprintStart, 'dd/MM')}).`)
+						}
+						if (isAfter(task.endDate, sprintEnd)) {
+							const daysOut = differenceInCalendarDays(task.endDate, sprintEnd)
+							risks.push(`SPRINT: "${task.name}" estourou a ${sprint.name} em ${daysOut} dia(s).`)
+						}
 					}
 				}
-				if (hasConflict && task.duration < 3) risks.push(`CALENDÁRIO: Tarefa curta "${task.name}" coincide com ${conflictType}.`)
+
+				if (task.startDate && task.endDate) {
+					let hasConflict = false
+					let conflictType = ''
+					const hasGlobalHoliday = config.value.holidays.some(h => {
+						const hDate = startOfDay(parseISO(h))
+						return task.startDate! <= hDate && task.endDate! >= hDate
+					})
+					if (hasGlobalHoliday) {
+						hasConflict = true
+						conflictType = 'feriado'
+					}
+					if (!hasConflict && responsibleMember) {
+						const hasDayOff = responsibleMember.daysOff.some(d => {
+							const dDate = startOfDay(parseISO(d))
+							return task.startDate! <= dDate && task.endDate! >= dDate
+						})
+						if (hasDayOff) {
+							hasConflict = true
+							conflictType = 'folga pessoal'
+						}
+					}
+					if (hasConflict && task.duration < 3) risks.push(`CALENDÁRIO: Tarefa curta "${task.name}" coincide com ${conflictType}.`)
+				}
 			}
 		})
+
+		if (totalEffort > 0 && notPlannedEffort / totalEffort > 0.2) {
+			const percent = Math.round((notPlannedEffort / totalEffort) * 100)
+			risks.push(`CARRY-OVER: ${percent}% do esforço ativo são tarefas "Não Planejadas". Risco de atraso nas entregas planejadas.`)
+		}
+
 		return risks
 	})
 
@@ -393,10 +506,10 @@ export function useGantt() {
 		if (!computedTasks.value.length) return []
 		let maxEndDate = 0
 		computedTasks.value.forEach(t => {
-			if (t.endDate && t.endDate.getTime() > maxEndDate) maxEndDate = t.endDate.getTime()
+			if (!t.isCompleted && t.endDate && t.endDate.getTime() > maxEndDate) maxEndDate = t.endDate.getTime()
 		})
 		const criticalSet = new Set<string>()
-		const lastTasks = computedTasks.value.filter(t => t.endDate && t.endDate.getTime() === maxEndDate)
+		const lastTasks = computedTasks.value.filter(t => !t.isCompleted && t.endDate && t.endDate.getTime() === maxEndDate)
 		const traceParents = (taskId: string) => {
 			criticalSet.add(taskId)
 			const task = computedTasks.value.find(t => t.id === taskId)
@@ -421,6 +534,7 @@ export function useGantt() {
 		addTask,
 		updateTask,
 		removeTask,
+		toggleTaskCompletion,
 		importTasks,
 		setEditingTask,
 		cancelEditing,
@@ -443,5 +557,8 @@ export function useGantt() {
 		filterSearch,
 		filterResponsible,
 		filterType,
+		addSprint,
+		removeSprint,
+		projectDeadlineComputed,
 	}
 }

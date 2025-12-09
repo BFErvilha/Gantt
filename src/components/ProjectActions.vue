@@ -51,8 +51,8 @@ const handleFileChange = async (event: Event) => {
 </script>
 
 <template>
-	<div class="bg-white p-4 rounded-lg shadow border border-slate-200 mb-6">
-		<h3 class="text-sm font-bold uppercase text-slate-500 mb-3">Ações e Relatórios</h3>
+	<div class="bg-white dark:bg-slate-800 p-4 rounded-lg shadow border border-slate-200 dark:border-slate-700 mb-6 transition-colors duration-300">
+		<h3 class="text-sm font-bold uppercase text-slate-500 dark:text-slate-400 mb-3">Ações e Relatórios</h3>
 
 		<div class="grid grid-cols-1 gap-2">
 			<button v-if="showInstallButton" @click="installPWA" class="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-3 py-2 rounded hover:from-indigo-600 hover:to-purple-700 transition text-sm font-bold shadow-md mb-2">
@@ -61,6 +61,7 @@ const handleFileChange = async (event: Event) => {
 				</svg>
 				Instalar Aplicativo
 			</button>
+
 			<div class="flex gap-2">
 				<button @click="handleExportExcel" class="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white px-3 py-2 rounded hover:bg-green-700 transition text-sm font-medium">
 					<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -76,17 +77,20 @@ const handleFileChange = async (event: Event) => {
 				</button>
 			</div>
 
-			<div class="pt-2 border-t border-slate-100 mt-1">
+			<div class="pt-2 border-t border-slate-100 dark:border-slate-700 mt-1">
 				<input type="file" ref="fileInput" class="hidden" accept=".xlsx, .xls" @change="handleFileChange" />
 
-				<button @click="triggerFileInput" class="w-full flex items-center justify-center gap-2 bg-slate-100 text-slate-700 border border-slate-300 px-3 py-2 rounded hover:bg-slate-200 transition text-sm font-medium">
+				<button
+					@click="triggerFileInput"
+					class="w-full flex items-center justify-center gap-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 px-3 py-2 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition text-sm font-medium"
+				>
 					<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
 					Importar Planilha
 				</button>
 
 				<div class="flex justify-between items-center mt-2 px-1">
 					<span class="text-[10px] text-slate-400">Formatos: .xlsx</span>
-					<button @click="downloadImportTemplate" class="text-[10px] text-blue-500 hover:text-blue-700 font-bold flex items-center gap-1 hover:underline">
+					<button @click="downloadImportTemplate" class="text-[10px] text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-bold flex items-center gap-1 hover:underline">
 						<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
 						Baixar Modelo
 					</button>

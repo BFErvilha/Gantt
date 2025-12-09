@@ -6,15 +6,17 @@ import ProjectActions from '@/components/ProjectActions.vue'
 import GanttChart from '@/components/GanttChart.vue'
 import DashboardView from '@/components/DashboardView.vue'
 import { useGantt } from '@/composables/useGantt'
+import { useTheme } from '@/composables/useTheme'
 
 const { openCreateModal } = useGantt()
+const { isDark, toggleDark } = useTheme()
 
 const currentTab = ref<'dashboard' | 'gantt'>('dashboard')
 </script>
 
 <template>
-	<div class="min-h-screen flex flex-col bg-slate-50 font-sans text-slate-900">
-		<header class="bg-slate-900 text-white p-4 shadow-md z-50 sticky top-0">
+	<div class="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300">
+		<header class="bg-slate-900 dark:bg-slate-950 text-white p-4 shadow-md z-50 sticky top-0 border-b border-slate-800">
 			<div class="max-w-[1600px] mx-auto flex items-center justify-between">
 				<div class="flex items-center gap-4 sm:gap-6">
 					<div class="flex items-center gap-3">
@@ -24,8 +26,8 @@ const currentTab = ref<'dashboard' | 'gantt'>('dashboard')
 						<h1 class="text-xl font-bold tracking-tight hidden md:block">Gantt-ficator</h1>
 					</div>
 
-					<nav class="flex bg-slate-800 rounded-lg p-1">
-						<button @click="currentTab = 'dashboard'" class="px-3 sm:px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2" :class="currentTab === 'dashboard' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'">
+					<nav class="flex bg-slate-800 dark:bg-slate-900 rounded-lg p-1 border border-slate-700">
+						<button @click="currentTab = 'dashboard'" class="px-3 sm:px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2" :class="currentTab === 'dashboard' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'">
 							<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 								<path
 									stroke-linecap="round"
@@ -36,7 +38,7 @@ const currentTab = ref<'dashboard' | 'gantt'>('dashboard')
 							</svg>
 							<span class="hidden sm:inline">Dashboard</span>
 						</button>
-						<button @click="currentTab = 'gantt'" class="px-3 sm:px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2" :class="currentTab === 'gantt' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-white'">
+						<button @click="currentTab = 'gantt'" class="px-3 sm:px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2" :class="currentTab === 'gantt' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'">
 							<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
 							</svg>
@@ -46,6 +48,15 @@ const currentTab = ref<'dashboard' | 'gantt'>('dashboard')
 				</div>
 
 				<div class="flex items-center gap-3">
+					<button @click="toggleDark" class="p-2 rounded-lg bg-slate-800 dark:bg-slate-700 text-yellow-400 dark:text-slate-200 hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors border border-slate-700" :title="isDark ? 'Mudar para Modo Claro' : 'Mudar para Modo Escuro'">
+						<svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+						</svg>
+						<svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+						</svg>
+					</button>
+
 					<button @click="openCreateModal" class="bg-blue-600 hover:bg-blue-500 text-white px-3 sm:px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 shadow-lg shadow-blue-900/50 transition-transform hover:scale-105 active:scale-95">
 						<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
 						<span class="hidden sm:inline">Nova Tarefa</span>
@@ -62,7 +73,6 @@ const currentTab = ref<'dashboard' | 'gantt'>('dashboard')
 
 			<section class="lg:col-span-9 order-1 lg:order-2 flex flex-col min-h-[600px]">
 				<DashboardView v-if="currentTab === 'dashboard'" />
-
 				<GanttChart v-if="currentTab === 'gantt'" />
 			</section>
 		</main>
@@ -71,10 +81,4 @@ const currentTab = ref<'dashboard' | 'gantt'>('dashboard')
 	</div>
 </template>
 
-<style>
-body {
-	margin: 0;
-	font-family: 'Inter', 'Segoe UI', sans-serif;
-	background-color: #f8fafc;
-}
-</style>
+<style></style>
