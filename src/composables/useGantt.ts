@@ -1,9 +1,10 @@
 import { ref, computed, watch } from 'vue'
-import { addDays, format, startOfDay, isWeekend, differenceInCalendarDays, parseISO } from 'date-fns'
+import { addDays, format, startOfDay, isWeekend, differenceInCalendarDays, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addMonths, addWeeks } from 'date-fns'
 
 export interface TeamMember {
 	name: string
 	capacity: number
+	daysOff: string[]
 }
 
 export interface Task {
@@ -15,6 +16,7 @@ export interface Task {
 	type: 'frontend' | 'backend' | 'other'
 	responsible?: string
 	effort?: number
+	manualStartDate?: string
 	startDate?: Date
 	endDate?: Date
 	offsetDays?: number
@@ -32,6 +34,8 @@ export interface ProjectConfig {
 	teamMembers: TeamMember[]
 }
 
+export type ViewMode = 'project' | 'month' | 'week'
+
 const STORAGE_KEY_TASKS = 'gantt-pro-tasks'
 const STORAGE_KEY_CONFIG = 'gantt-pro-config'
 
@@ -44,15 +48,13 @@ const loadInitialConfig = (): ProjectConfig => {
 	const saved = localStorage.getItem(STORAGE_KEY_CONFIG)
 	if (saved) {
 		const parsed = JSON.parse(saved)
-
 		let members: TeamMember[] = []
 		if (Array.isArray(parsed.teamMembers)) {
 			members = parsed.teamMembers.map((m: any) => {
-				if (typeof m === 'string') return { name: m, capacity: 8 }
-				return m
+				if (typeof m === 'string') return { name: m, capacity: 8, daysOff: [] }
+				return { ...m, daysOff: m.daysOff || [] }
 			})
 		}
-
 		return {
 			holidays: [],
 			risks: [],
@@ -74,6 +76,15 @@ const tasks = ref<Task[]>(loadInitialTasks())
 const config = ref<ProjectConfig>(loadInitialConfig())
 const editingTask = ref<Task | null>(null)
 
+const isTaskModalOpen = ref(false)
+
+const viewMode = ref<ViewMode>('project')
+const currentViewDate = ref<Date>(startOfDay(new Date(config.value.projectStartDate)))
+
+const filterSearch = ref('')
+const filterResponsible = ref('')
+const filterType = ref('')
+
 export function useGantt() {
 	watch(
 		[tasks, config],
@@ -84,29 +95,43 @@ export function useGantt() {
 		{ deep: true },
 	)
 
-	const isNonWorkingDay = (date: Date) => {
+	watch(
+		() => config.value.projectStartDate,
+		newDate => {
+			currentViewDate.value = startOfDay(new Date(newDate))
+		},
+	)
+
+	const isNonWorkingDay = (date: Date, responsibleName?: string) => {
 		const dateString = format(date, 'yyyy-MM-dd')
-		const isHoliday = config.value.holidays.includes(dateString)
-		if (config.value.skipWeekends) {
-			return isWeekend(date) || isHoliday
+		const isGlobalHoliday = config.value.holidays.includes(dateString)
+		if (isGlobalHoliday) return true
+		if (config.value.skipWeekends && isWeekend(date)) return true
+		if (responsibleName) {
+			const member = config.value.teamMembers.find(m => m.name === responsibleName)
+			if (member && member.daysOff && member.daysOff.includes(dateString)) {
+				return true
+			}
 		}
-		return isHoliday
+		return false
 	}
 
-	const calculateEndDate = (start: Date, duration: number) => {
+	const calculateEndDate = (start: Date, duration: number, responsibleName?: string) => {
 		let daysAdded = 0
 		let current = start
 		const targetDays = Math.max(0, duration - 1)
 		while (daysAdded < targetDays) {
 			current = addDays(current, 1)
-			if (!isNonWorkingDay(current)) daysAdded++
+			if (!isNonWorkingDay(current, responsibleName)) daysAdded++
 		}
 		return current
 	}
 
-	const getNextValidStartDate = (date: Date) => {
+	const getNextValidStartDate = (date: Date, responsibleName?: string) => {
 		let current = date
-		while (isNonWorkingDay(current)) current = addDays(current, 1)
+		while (isNonWorkingDay(current, responsibleName)) {
+			current = addDays(current, 1)
+		}
 		return current
 	}
 
@@ -123,17 +148,23 @@ export function useGantt() {
 			iterations++
 			for (const task of taskQueue) {
 				let start = projectStart
-				if (task.dependencyId) {
+
+				if (task.manualStartDate) {
+					let manualDate = parseISO(task.manualStartDate)
+					start = getNextValidStartDate(manualDate, task.responsible)
+				} else if (task.dependencyId) {
 					const depDates = tempDates.get(task.dependencyId)
 					if (depDates) {
 						let tentativeStart = addDays(depDates.end, 1)
-						start = getNextValidStartDate(tentativeStart)
+						start = getNextValidStartDate(tentativeStart, task.responsible)
 					}
 				} else {
-					start = getNextValidStartDate(projectStart)
+					start = getNextValidStartDate(projectStart, task.responsible)
 				}
-				const end = calculateEndDate(start, task.duration)
+
+				const end = calculateEndDate(start, task.duration, task.responsible)
 				const currentData = tempDates.get(task.id)
+
 				if (!currentData || currentData.start.getTime() !== start.getTime()) {
 					tempDates.set(task.id, { start, end })
 					hasChanges = true
@@ -156,6 +187,38 @@ export function useGantt() {
 		})
 	})
 
+	const filteredTasks = computed(() => {
+		return computedTasks.value.filter(task => {
+			const matchName = task.name.toLowerCase().includes(filterSearch.value.toLowerCase())
+			const matchResponsible = filterResponsible.value ? task.responsible === filterResponsible.value : true
+			const matchType = filterType.value ? task.type === filterType.value : true
+			return matchName && matchResponsible && matchType
+		})
+	})
+
+	const visibleDateRange = computed(() => {
+		const cursor = startOfDay(currentViewDate.value)
+		const projectStart = startOfDay(new Date(config.value.projectStartDate))
+		const projectEnd = startOfDay(new Date(config.value.deadline))
+		if (viewMode.value === 'week') return { start: startOfWeek(cursor, { weekStartsOn: 0 }), end: endOfWeek(cursor, { weekStartsOn: 0 }) }
+		if (viewMode.value === 'month') return { start: startOfMonth(cursor), end: endOfMonth(cursor) }
+		let endLimit = projectEnd
+		if (computedTasks.value.length > 0) {
+			const maxTaskEnd = computedTasks.value.reduce((max, t) => (t.endDate && t.endDate > max ? t.endDate : max), projectStart)
+			if (maxTaskEnd > endLimit) endLimit = maxTaskEnd
+		}
+		return { start: projectStart, end: addDays(endLimit, 7) }
+	})
+
+	const navigateView = (direction: 'prev' | 'next') => {
+		const step = direction === 'next' ? 1 : -1
+		if (viewMode.value === 'week') currentViewDate.value = addWeeks(currentViewDate.value, step)
+		else if (viewMode.value === 'month') currentViewDate.value = addMonths(currentViewDate.value, step)
+	}
+	const setViewMode = (mode: ViewMode) => {
+		viewMode.value = mode
+	}
+
 	const importTasks = (newTasks: Partial<Task>[]) => {
 		tasks.value = newTasks.map(t => ({
 			id: t.id || crypto.randomUUID(),
@@ -168,17 +231,7 @@ export function useGantt() {
 			effort: t.effort || 0,
 		})) as Task[]
 	}
-
-	const totalProjectDays = computed(() => {
-		if (computedTasks.value.length === 0) return 30
-		const projectStart = startOfDay(new Date(config.value.projectStartDate))
-		const lastTaskDate = computedTasks.value.reduce((max, t) => {
-			return t.endDate && t.endDate > max ? t.endDate : max
-		}, projectStart)
-		const diffTasks = differenceInCalendarDays(lastTaskDate, projectStart)
-		const diffDeadline = differenceInCalendarDays(new Date(config.value.deadline), projectStart)
-		return Math.max(diffTasks + 7, diffDeadline + 7, 30)
-	})
+	const totalProjectDays = computed(() => differenceInCalendarDays(visibleDateRange.value.end, visibleDateRange.value.start) + 1)
 
 	const addTask = (task: Partial<Task>) => {
 		tasks.value.push({
@@ -192,29 +245,47 @@ export function useGantt() {
 			effort: task.effort || 0,
 		})
 	}
-
 	const updateTask = (updatedTask: Task) => {
 		const index = tasks.value.findIndex(t => t.id === updatedTask.id)
 		if (index !== -1) tasks.value[index] = { ...updatedTask }
 		editingTask.value = null
+		isTaskModalOpen.value = false
 	}
-
 	const removeTask = (id: string) => {
 		tasks.value = tasks.value.filter(t => t.id !== id)
 		tasks.value.forEach(t => {
 			if (t.dependencyId === id) t.dependencyId = null
 		})
-		if (editingTask.value?.id === id) editingTask.value = null
+		if (editingTask.value?.id === id) {
+			editingTask.value = null
+			isTaskModalOpen.value = false
+		}
 	}
 
-	const setEditingTask = (task: Task) => (editingTask.value = JSON.parse(JSON.stringify(task)))
-	const cancelEditing = () => (editingTask.value = null)
+	const setEditingTask = (task: Task) => {
+		editingTask.value = JSON.parse(JSON.stringify(task))
+		isTaskModalOpen.value = true
+	}
+
+	const openCreateModal = () => {
+		editingTask.value = null
+		isTaskModalOpen.value = true
+	}
+
+	const cancelEditing = () => {
+		editingTask.value = null
+		isTaskModalOpen.value = false
+	}
+
+	const moveTask = (taskId: string, newStartDate: Date) => {
+		const task = tasks.value.find(t => t.id === taskId)
+		if (task) {
+			task.manualStartDate = format(newStartDate, 'yyyy-MM-dd')
+		}
+	}
 
 	const addHoliday = (date: string) => {
-		if (!config.value.holidays.includes(date)) {
-			config.value.holidays.push(date)
-			config.value.holidays.sort()
-		}
+		if (!config.value.holidays.includes(date)) config.value.holidays.push(date)
 	}
 	const removeHoliday = (date: string) => {
 		config.value.holidays = config.value.holidays.filter(d => d !== date)
@@ -225,42 +296,50 @@ export function useGantt() {
 	const removeRisk = (index: number) => {
 		config.value.risks.splice(index, 1)
 	}
-
 	const addMember = (name: string, capacity: number) => {
-		if (name && !config.value.teamMembers.some(m => m.name === name)) {
-			config.value.teamMembers.push({ name, capacity })
+		if (name && !config.value.teamMembers.some(m => m.name === name)) config.value.teamMembers.push({ name, capacity, daysOff: [] })
+	}
+	const updateMember = (index: number, newName: string, newCapacity: number) => {
+		const oldName = config.value.teamMembers[index].name
+		config.value.teamMembers[index].name = newName
+		config.value.teamMembers[index].capacity = newCapacity
+		if (oldName !== newName) {
+			tasks.value.forEach(t => {
+				if (t.responsible === oldName) t.responsible = newName
+			})
 		}
 	}
 	const removeMember = (index: number) => {
 		config.value.teamMembers.splice(index, 1)
 	}
+	const addMemberDayOff = (memberIndex: number, date: string) => {
+		const member = config.value.teamMembers[memberIndex]
+		if (member && !member.daysOff.includes(date)) {
+			member.daysOff.push(date)
+			member.daysOff.sort()
+		}
+	}
+	const removeMemberDayOff = (memberIndex: number, date: string) => {
+		const member = config.value.teamMembers[memberIndex]
+		if (member) member.daysOff = member.daysOff.filter(d => d !== date)
+	}
 
 	const projectCapacityStats = computed(() => {
 		const start = startOfDay(new Date(config.value.projectStartDate))
 		const end = startOfDay(new Date(config.value.deadline))
-
 		let workingDays = 0
 		let current = start
 		while (current <= end) {
-			if (!isNonWorkingDay(current)) {
-				workingDays++
-			}
+			if (!isNonWorkingDay(current)) workingDays++
 			current = addDays(current, 1)
 		}
-
 		const memberStats = config.value.teamMembers.map(m => ({
 			name: m.name,
 			capacityPerDay: m.capacity,
 			totalCapacity: m.capacity * workingDays,
 		}))
-
 		const totalTeamCapacity = memberStats.reduce((sum, m) => sum + m.totalCapacity, 0)
-
-		return {
-			workingDays,
-			totalTeamCapacity,
-			memberStats,
-		}
+		return { workingDays, totalTeamCapacity, memberStats }
 	})
 
 	const automaticRisks = computed(() => {
@@ -268,37 +347,43 @@ export function useGantt() {
 		if (computedTasks.value.length > 0) {
 			const projectStart = startOfDay(new Date(config.value.projectStartDate))
 			const deadlineDate = startOfDay(new Date(config.value.deadline))
-			const lastTaskDate = computedTasks.value.reduce((max, t) => {
-				return t.endDate && t.endDate > max ? t.endDate : max
-			}, projectStart)
-
+			const lastTaskDate = computedTasks.value.reduce((max, t) => (t.endDate && t.endDate > max ? t.endDate : max), projectStart)
 			if (lastTaskDate > deadlineDate) {
 				const daysLate = differenceInCalendarDays(lastTaskDate, deadlineDate)
 				risks.push(`CRÍTICO: O projeto terminará ${daysLate} dia(s) após o prazo final!`)
 			} else {
 				const margin = differenceInCalendarDays(deadlineDate, lastTaskDate)
-				if (margin < 3 && margin >= 0) {
-					risks.push(`ALERTA: Margem de segurança baixa (${margin} dias até o prazo).`)
-				}
+				if (margin < 3 && margin >= 0) risks.push(`ALERTA: Margem de segurança baixa (${margin} dias até o prazo).`)
 			}
 		}
-
 		computedTasks.value.forEach(task => {
 			const responsibleMember = config.value.teamMembers.find(m => m.name === task.responsible)
 			const dailyCapacity = responsibleMember ? responsibleMember.capacity : 8
-
 			if (task.effort && task.duration && task.effort > task.duration * dailyCapacity) {
 				risks.push(`CAPACIDADE: "${task.name}" (${task.responsible || 'Sem resp.'}) requer ${task.effort}h. Limite: ${task.duration * dailyCapacity}h.`)
 			}
-
 			if (task.startDate && task.endDate) {
-				const hasHoliday = config.value.holidays.some(h => {
+				let hasConflict = false
+				let conflictType = ''
+				const hasGlobalHoliday = config.value.holidays.some(h => {
 					const hDate = startOfDay(parseISO(h))
 					return task.startDate! <= hDate && task.endDate! >= hDate
 				})
-				if (hasHoliday && task.duration < 3) {
-					risks.push(`CALENDÁRIO: Tarefa curta "${task.name}" é interrompida por um feriado.`)
+				if (hasGlobalHoliday) {
+					hasConflict = true
+					conflictType = 'feriado'
 				}
+				if (!hasConflict && responsibleMember) {
+					const hasDayOff = responsibleMember.daysOff.some(d => {
+						const dDate = startOfDay(parseISO(d))
+						return task.startDate! <= dDate && task.endDate! >= dDate
+					})
+					if (hasDayOff) {
+						hasConflict = true
+						conflictType = 'folga pessoal'
+					}
+				}
+				if (hasConflict && task.duration < 3) risks.push(`CALENDÁRIO: Tarefa curta "${task.name}" coincide com ${conflictType}.`)
 			}
 		})
 		return risks
@@ -308,18 +393,14 @@ export function useGantt() {
 		if (!computedTasks.value.length) return []
 		let maxEndDate = 0
 		computedTasks.value.forEach(t => {
-			if (t.endDate && t.endDate.getTime() > maxEndDate) {
-				maxEndDate = t.endDate.getTime()
-			}
+			if (t.endDate && t.endDate.getTime() > maxEndDate) maxEndDate = t.endDate.getTime()
 		})
 		const criticalSet = new Set<string>()
 		const lastTasks = computedTasks.value.filter(t => t.endDate && t.endDate.getTime() === maxEndDate)
 		const traceParents = (taskId: string) => {
 			criticalSet.add(taskId)
 			const task = computedTasks.value.find(t => t.id === taskId)
-			if (task && task.dependencyId) {
-				traceParents(task.dependencyId)
-			}
+			if (task && task.dependencyId) traceParents(task.dependencyId)
 		}
 		lastTasks.forEach(t => traceParents(t.id))
 		return Array.from(criticalSet)
@@ -329,8 +410,14 @@ export function useGantt() {
 		tasks,
 		config,
 		computedTasks,
+		filteredTasks,
 		totalProjectDays,
 		editingTask,
+		viewMode,
+		visibleDateRange,
+		currentViewDate,
+		setViewMode,
+		navigateView,
 		addTask,
 		updateTask,
 		removeTask,
@@ -343,9 +430,18 @@ export function useGantt() {
 		removeRisk,
 		isNonWorkingDay,
 		addMember,
+		updateMember,
 		removeMember,
+		addMemberDayOff,
+		removeMemberDayOff,
+		moveTask,
+		isTaskModalOpen,
+		openCreateModal,
 		automaticRisks,
 		criticalPathIds,
 		projectCapacityStats,
+		filterSearch,
+		filterResponsible,
+		filterType,
 	}
 }

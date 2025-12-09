@@ -3,8 +3,8 @@ import { ref, onMounted } from 'vue'
 import { useGantt } from '@/composables/useGantt'
 import { useDataPersistence } from '@/composables/useDataPersistence'
 
-const { computedTasks, config, importTasks } = useGantt()
-const { exportToExcel, exportToPDF, importFromExcel } = useDataPersistence()
+const { computedTasks, config, importTasks, automaticRisks } = useGantt()
+const { exportToExcel, exportToPDF, importFromExcel, downloadImportTemplate } = useDataPersistence()
 const fileInput = ref<HTMLInputElement | null>(null)
 
 const deferredPrompt = ref<any>(null)
@@ -20,18 +20,15 @@ onMounted(() => {
 
 const installPWA = async () => {
 	if (!deferredPrompt.value) return
-
 	deferredPrompt.value.prompt()
-
 	const { outcome } = await deferredPrompt.value.userChoice
-	console.log(`User response to the install prompt: ${outcome}`)
-
+	console.log(`User response: ${outcome}`)
 	deferredPrompt.value = null
 	showInstallButton.value = false
 }
 
 const handleExportExcel = () => exportToExcel(computedTasks.value)
-const handleExportPDF = () => exportToPDF(computedTasks.value, config.value)
+const handleExportPDF = () => exportToPDF(computedTasks.value, config.value, automaticRisks.value)
 
 const triggerFileInput = () => fileInput.value?.click()
 
@@ -75,17 +72,25 @@ const handleFileChange = async (event: Event) => {
 					<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
 					</svg>
-					PDF
+					Relatório PDF
 				</button>
 			</div>
 
 			<div class="pt-2 border-t border-slate-100 mt-1">
 				<input type="file" ref="fileInput" class="hidden" accept=".xlsx, .xls" @change="handleFileChange" />
+
 				<button @click="triggerFileInput" class="w-full flex items-center justify-center gap-2 bg-slate-100 text-slate-700 border border-slate-300 px-3 py-2 rounded hover:bg-slate-200 transition text-sm font-medium">
 					<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
 					Importar Planilha
 				</button>
-				<p class="text-[10px] text-slate-400 text-center mt-1">Formatos: .xlsx (Colunas: Tarefa, Duração, ID...)</p>
+
+				<div class="flex justify-between items-center mt-2 px-1">
+					<span class="text-[10px] text-slate-400">Formatos: .xlsx</span>
+					<button @click="downloadImportTemplate" class="text-[10px] text-blue-500 hover:text-blue-700 font-bold flex items-center gap-1 hover:underline">
+						<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+						Baixar Modelo
+					</button>
+				</div>
 			</div>
 		</div>
 	</div>
