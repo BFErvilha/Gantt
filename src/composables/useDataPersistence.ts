@@ -21,7 +21,7 @@ export function useDataPersistence() {
 		doc.setFontSize(10)
 		doc.text(`Início: ${format(new Date(config.projectStartDate), 'dd/MM/yyyy')}`, 14, 45)
 		doc.text(`Deadline: ${format(new Date(config.deadline), 'dd/MM/yyyy')}`, 80, 45)
-		doc.text(`Equipa: ${config.teamMembers.length} membros`, 140, 45)
+		doc.text(`Equipe: ${config.teamMembers.length} membros`, 140, 45)
 
 		let currentY = 55
 		if (risks.length > 0) {

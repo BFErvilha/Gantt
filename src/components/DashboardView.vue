@@ -116,7 +116,7 @@ const tasksByType = computed(() => {
 						<div class="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden relative">
 							<div class="h-full rounded-full transition-all duration-500" :class="member.isOverloaded ? 'bg-red-500' : 'bg-blue-500'" :style="{ width: Math.min(member.percentage, 100) + '%' }"></div>
 						</div>
-						<div v-if="member.isOverloaded" class="text-[10px] text-red-500 mt-0.5">⚠️ Sobrecarga detetada</div>
+						<div v-if="member.isOverloaded" class="text-[10px] text-red-500 mt-0.5">⚠️ Sobrecarga detectada</div>
 					</div>
 				</div>
 			</div>
