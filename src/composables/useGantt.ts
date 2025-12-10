@@ -1,5 +1,6 @@
 import { ref, computed, watch } from 'vue'
 import { addDays, format, startOfDay, isWeekend, differenceInCalendarDays, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addMonths, addWeeks, isAfter, isBefore } from 'date-fns'
+import { useToast } from './useToast'
 
 export interface TeamMember {
 	name: string
@@ -37,6 +38,9 @@ export interface Task {
 	isNotPlanned?: boolean
 	isCompleted?: boolean
 	completedDate?: string
+	isMilestone?: boolean
+	originalStartDate?: string
+	originalEndDate?: string
 }
 
 export interface ProjectConfig {
@@ -61,6 +65,7 @@ const loadInitialTasks = (): Task[] => {
 			...t,
 			isNotPlanned: t.isNotPlanned ?? false,
 			isCompleted: t.isCompleted ?? false,
+			isMilestone: t.isMilestone ?? false,
 		}))
 	}
 	return []
@@ -110,6 +115,7 @@ const filterResponsible = ref('')
 const filterType = ref('')
 
 export function useGantt() {
+	const toast = useToast()
 	watch(
 		[tasks, config],
 		() => {
@@ -158,6 +164,8 @@ export function useGantt() {
 	}
 
 	const calculateEndDate = (start: Date, duration: number, responsibleName?: string) => {
+		if (duration === 0) return start
+
 		let daysAdded = 0
 		let current = start
 		const targetDays = Math.max(0, duration - 1)
@@ -212,7 +220,7 @@ export function useGantt() {
 					}
 				}
 
-				const end = calculateEndDate(start, task.duration, task.responsible)
+				const end = calculateEndDate(start, task.isMilestone ? 0 : task.duration, task.responsible)
 				const currentData = tempDates.get(task.id)
 
 				if (!currentData || currentData.start.getTime() !== start.getTime()) {
@@ -230,7 +238,7 @@ export function useGantt() {
 				startDate: dates.start,
 				endDate: dates.end,
 				offsetDays: differenceInCalendarDays(dates.start, projectStart),
-				calendarDuration,
+				calendarDuration: task.isMilestone ? 1 : calendarDuration,
 				formattedStartDate: format(dates.start, 'dd/MM/yyyy'),
 				formattedEndDate: format(dates.end, 'dd/MM/yyyy'),
 			}
@@ -281,6 +289,7 @@ export function useGantt() {
 			sprintId: t.sprintId || undefined,
 			isNotPlanned: !t.sprintId,
 			isCompleted: false,
+			isMilestone: t.isMilestone || false,
 		})) as Task[]
 	}
 	const totalProjectDays = computed(() => differenceInCalendarDays(visibleDateRange.value.end, visibleDateRange.value.start) + 1)
@@ -303,6 +312,7 @@ export function useGantt() {
 			isNotPlanned: !task.sprintId,
 			isCompleted: false,
 			completedDate: undefined,
+			isMilestone: task.isMilestone || false,
 		})
 	}
 
@@ -356,6 +366,27 @@ export function useGantt() {
 		if (task) {
 			task.manualStartDate = format(newStartDate, 'yyyy-MM-dd')
 		}
+	}
+
+	const saveBaseline = () => {
+		const snapshot = new Map<string, { start: string; end: string }>()
+		computedTasks.value.forEach(t => {
+			if (t.startDate && t.endDate) {
+				snapshot.set(t.id, {
+					start: format(t.startDate, 'yyyy-MM-dd'),
+					end: format(t.endDate, 'yyyy-MM-dd'),
+				})
+			}
+		})
+
+		tasks.value.forEach(t => {
+			if (snapshot.has(t.id)) {
+				const dates = snapshot.get(t.id)!
+				t.originalStartDate = dates.start
+				t.originalEndDate = dates.end
+			}
+		})
+		toast.show('Linha de base salva! Agora você pode comparar o planejado vs realizado.', 'success')
 	}
 
 	const addHoliday = (date: string) => {
@@ -464,7 +495,7 @@ export function useGantt() {
 				const responsibleMember = config.value.teamMembers.find(m => m.name === task.responsible)
 				const dailyCapacity = responsibleMember ? responsibleMember.capacity : 8
 
-				if (task.effort && task.duration && task.effort > task.duration * dailyCapacity) {
+				if (!task.isMilestone && task.effort && task.duration && task.effort > task.duration * dailyCapacity) {
 					risks.push(`CAPACIDADE: "${task.name}" requer ${task.effort}h. Limite atual: ${task.duration * dailyCapacity}h.`)
 				}
 
@@ -577,5 +608,6 @@ export function useGantt() {
 		updateSprint,
 		removeSprint,
 		projectDeadlineComputed,
+		saveBaseline,
 	}
 }

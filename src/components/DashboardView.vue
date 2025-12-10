@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useGantt } from '@/composables/useGantt'
-import { differenceInCalendarDays, parseISO, isAfter, startOfDay } from 'date-fns'
+import { differenceInCalendarDays, parseISO, isAfter, startOfDay, format } from 'date-fns'
 
 const { tasks, config, automaticRisks, projectCapacityStats, computedTasks } = useGantt()
 
@@ -48,11 +48,10 @@ const notPlannedStats = computed(() => {
 
 const teamWorkload = computed(() => {
 	return config.value.teamMembers.map(member => {
-		const assignedHours = tasks.value.filter(t => t.responsible === member.name && !t.isCompleted).reduce((acc, t) => acc + (t.effort || 0), 0)
+		const assignedHours = tasks.value.filter(t => t.responsible === member.name && !t.isCompleted && !t.isMilestone).reduce((acc, t) => acc + (t.effort || 0), 0)
 
 		const stat = projectCapacityStats.value.memberStats.find(s => s.name === member.name)
 		const totalCapacity = stat ? stat.totalCapacity : 0
-
 		const usagePercentage = totalCapacity > 0 ? Math.round((assignedHours / totalCapacity) * 100) : 0
 
 		return {
@@ -100,6 +99,36 @@ const sectorCapacityStats = computed(() => {
 		...data,
 		percentage: data.totalCapacity > 0 ? Math.round((data.assignedEffort / data.totalCapacity) * 100) : 0,
 	}))
+})
+
+const baselineStats = computed(() => {
+	const delayedTasks: any[] = []
+	let totalDelayDays = 0
+
+	computedTasks.value.forEach(t => {
+		if (t.originalEndDate && t.endDate) {
+			const originalEnd = parseISO(t.originalEndDate)
+			const diff = differenceInCalendarDays(t.endDate, originalEnd)
+
+			if (diff > 0) {
+				delayedTasks.push({
+					name: t.name,
+					responsible: t.responsible || 'N/A',
+					delay: diff,
+					planned: format(originalEnd, 'dd/MM'),
+					current: format(t.endDate, 'dd/MM'),
+					isMilestone: t.isMilestone,
+				})
+				totalDelayDays += diff
+			}
+		}
+	})
+
+	return {
+		count: delayedTasks.length,
+		totalDelay: totalDelayDays,
+		tasks: delayedTasks.sort((a, b) => b.delay - a.delay).slice(0, 5),
+	}
 })
 
 const parsedRisks = computed(() => {
@@ -246,7 +275,37 @@ const parsedRisks = computed(() => {
 				</div>
 			</div>
 		</div>
+		<div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 transition-colors h-full">
+			<div class="flex justify-between items-center mb-4">
+				<h3 class="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+					<svg class="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+					Desvio de Prazos (Baseline)
+				</h3>
+				<span v-if="baselineStats.count > 0" class="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs font-bold">{{ baselineStats.totalDelay }} dias total</span>
+			</div>
 
+			<div v-if="baselineStats.count === 0" class="text-center py-8 bg-slate-50 dark:bg-slate-700/30 rounded-lg border border-dashed border-slate-200 dark:border-slate-700">
+				<div class="text-slate-400 text-sm">Nenhum atraso em relação ao planejado.</div>
+				<div class="text-[10px] text-slate-400 mt-1">Defina uma Baseline nas configurações.</div>
+			</div>
+
+			<div v-else class="space-y-3">
+				<div v-for="task in baselineStats.tasks" :key="task.name" class="flex items-center justify-between p-3 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/30">
+					<div class="flex flex-col min-w-0">
+						<span class="font-bold text-slate-700 dark:text-slate-200 text-sm truncate flex items-center gap-1">
+							<span v-if="task.isMilestone">🚩</span>
+							{{ task.name }}
+						</span>
+						<span class="text-[10px] text-slate-500 dark:text-slate-400">{{ task.responsible }}</span>
+					</div>
+					<div class="flex flex-col items-end flex-shrink-0">
+						<span class="text-red-600 dark:text-red-400 font-black text-sm">+{{ task.delay }} dias</span>
+						<span class="text-[10px] text-slate-400">Era: {{ task.planned }} ➝ {{ task.current }}</span>
+					</div>
+				</div>
+				<div v-if="baselineStats.count > 5" class="text-center text-xs text-slate-400 italic pt-2">+{{ baselineStats.count - 5 }} outras tarefas atrasadas</div>
+			</div>
+		</div>
 		<div v-if="parsedRisks.length > 0" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm animate-fade-in transition-colors">
 			<h3 class="text-slate-700 dark:text-slate-200 font-bold text-base mb-4 flex items-center gap-2">
 				<span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
