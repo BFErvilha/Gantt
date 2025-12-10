@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, nextTick, onUnmounted } from 'vue'
 import { useGantt, type Task } from '@/composables/useGantt'
-import { format, addDays, startOfDay, isWeekend, differenceInCalendarDays, startOfWeek, endOfWeek, parseISO } from 'date-fns'
+import { format, addDays, startOfWeek, endOfWeek, differenceInCalendarDays, isWeekend } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
 const { filteredTasks, config, totalProjectDays, setEditingTask, editingTask, criticalPathIds, viewMode, visibleDateRange, setViewMode, navigateView, currentViewDate, filterSearch, filterResponsible, filterType, moveTask, automaticRisks } = useGantt()
@@ -10,24 +10,20 @@ const showCriticalPath = ref(false)
 const showRiskModal = ref(false)
 const ganttContainer = ref<HTMLDivElement | null>(null)
 const containerWidthPx = ref(0)
+const groupBy = ref<'none' | 'responsible' | 'sprint'>('none')
 
 const isDragging = ref(false)
 const draggingTaskId = ref<string | null>(null)
 const dragStartX = ref(0)
 const dragCurrentX = ref(0)
-const taskInitialLeft = ref(0)
 
-const onTaskMouseDown = (e: MouseEvent, task: Task, currentLeft: number) => {
+const onTaskMouseDown = (e: MouseEvent, task: Task) => {
 	if (e.button !== 0 || viewMode.value === 'month') return
-
 	e.stopPropagation()
-
 	isDragging.value = true
 	draggingTaskId.value = task.id
 	dragStartX.value = e.clientX
 	dragCurrentX.value = e.clientX
-	taskInitialLeft.value = currentLeft
-
 	window.addEventListener('mousemove', onGlobalMouseMove)
 	window.addEventListener('mouseup', onGlobalMouseUp)
 }
@@ -39,7 +35,6 @@ const onGlobalMouseMove = (e: MouseEvent) => {
 
 const onGlobalMouseUp = () => {
 	if (!isDragging.value) return
-
 	const deltaX = dragCurrentX.value - dragStartX.value
 	if (Math.abs(deltaX) < 5) {
 		const task = filteredTasks.value.find(t => t.id === draggingTaskId.value)
@@ -54,32 +49,10 @@ const onGlobalMouseUp = () => {
 			}
 		}
 	}
-
 	isDragging.value = false
 	draggingTaskId.value = null
 	window.removeEventListener('mousemove', onGlobalMouseMove)
 	window.removeEventListener('mouseup', onGlobalMouseUp)
-}
-
-const getTaskStyle = (task: Task) => {
-	if (!task.startDate) return {}
-
-	const viewStart = visibleDateRange.value.start
-	const offsetDays = differenceInCalendarDays(task.startDate, viewStart)
-	let leftPos = offsetDays * cellWidth.value
-
-	if (isDragging.value && draggingTaskId.value === task.id) {
-		const delta = dragCurrentX.value - dragStartX.value
-		leftPos += delta
-	}
-
-	return {
-		left: leftPos + 'px',
-		width: task.calendarDuration! * cellWidth.value + 'px',
-		backgroundColor: task.color,
-		cursor: viewMode.value === 'month' ? 'default' : isDragging.value ? 'grabbing' : 'grab',
-		zIndex: isDragging.value && draggingTaskId.value === task.id ? 50 : 10,
-	}
 }
 
 const updateDimensions = () => {
@@ -93,6 +66,9 @@ onMounted(() => {
 		resizeObserver = new ResizeObserver(() => updateDimensions())
 		resizeObserver.observe(ganttContainer.value)
 	}
+	nextTick(() => {
+		if (ganttContainer.value) ganttContainer.value.scrollLeft = 0
+	})
 })
 onUnmounted(() => {
 	window.removeEventListener('resize', updateDimensions)
@@ -110,14 +86,65 @@ const cellWidth = computed(() => {
 	}
 })
 
+const containerWidth = computed(() => {
+	if (viewMode.value === 'week') return containerWidthPx.value
+	return totalProjectDays.value * cellWidth.value
+})
+
+const getTaskStyle = (task: Task) => {
+	if (!task.startDate) return {}
+	const viewStart = visibleDateRange.value.start
+	const offsetDays = differenceInCalendarDays(task.startDate, viewStart)
+	let leftPos = offsetDays * cellWidth.value
+
+	if (isDragging.value && draggingTaskId.value === task.id) {
+		const delta = dragCurrentX.value - dragStartX.value
+		leftPos += delta
+	}
+
+	return {
+		left: leftPos + 'px',
+		width: (task.calendarDuration || 1) * cellWidth.value + 'px',
+		backgroundColor: task.isMilestone ? '#1e293b' : task.color,
+		cursor: viewMode.value === 'month' ? 'default' : isDragging.value ? 'grabbing' : 'grab',
+		zIndex: isDragging.value && draggingTaskId.value === task.id ? 50 : 10,
+	}
+}
+
+const groupedTasks = computed(() => {
+	if (groupBy.value === 'none') {
+		return [{ id: 'all', title: '', tasks: filteredTasks.value }]
+	}
+	const groups: Record<string, any[]> = {}
+
+	filteredTasks.value.forEach(task => {
+		let key = ''
+		if (groupBy.value === 'responsible') {
+			key = task.responsible || 'Sem Responsável'
+		} else if (groupBy.value === 'sprint') {
+			key = task.sprintId ? config.value.sprints.find(s => s.id === task.sprintId)?.name || 'Sprint Desconhecida' : 'Não Planejado'
+		}
+		if (!groups[key]) groups[key] = []
+		groups[key].push(task)
+	})
+
+	return Object.keys(groups)
+		.sort()
+		.map(key => ({
+			id: key,
+			title: key,
+			tasks: groups[key],
+		}))
+})
+
 const navigationLabel = computed(() => {
-	if (viewMode.value === 'project') return 'Visão Geral do Projeto'
+	if (viewMode.value === 'project') return 'Visão Geral'
 	const cursor = currentViewDate.value
 	if (viewMode.value === 'month') return format(cursor, 'MMMM yyyy', { locale: ptBR }).toUpperCase()
 	if (viewMode.value === 'week') {
 		const start = startOfWeek(cursor, { weekStartsOn: 0 })
 		const end = endOfWeek(cursor, { weekStartsOn: 0 })
-		return `Semana: ${format(start, 'dd/MM')} a ${format(end, 'dd/MM')}`
+		return `${format(start, 'dd/MM')} - ${format(end, 'dd/MM')}`
 	}
 	return ''
 })
@@ -127,15 +154,13 @@ const timelineDates = computed(() => {
 	return Array.from({ length: totalProjectDays.value }, (_, i) => {
 		const date = addDays(start, i)
 		const dateString = format(date, 'yyyy-MM-dd')
-		const isHoliday = config.value.holidays.includes(dateString)
-		const isWknd = isWeekend(date)
 		return {
 			date,
 			label: format(date, 'dd', { locale: ptBR }),
 			dayName: format(date, 'EEE', { locale: ptBR }).replace('.', '').toUpperCase(),
 			fullDate: format(date, 'dd/MM/yyyy'),
-			isWeekend: isWknd,
-			isHoliday: isHoliday,
+			isWeekend: isWeekend(date),
+			isHoliday: config.value.holidays.includes(dateString),
 		}
 	})
 })
@@ -159,39 +184,23 @@ const timelineMonths = computed(() => {
 	return months
 })
 
-const deadlinePosition = computed(() => {
-	const deadline = startOfDay(new Date(config.value.deadline))
-	const viewStart = visibleDateRange.value.start
-	const diff = differenceInCalendarDays(deadline, viewStart)
-	if (diff < 0) return -100
-	return (diff + 1) * cellWidth.value
-})
-
-const containerWidth = computed(() => {
-	if (viewMode.value === 'week') return containerWidthPx.value
-	return totalProjectDays.value * cellWidth.value
-})
-
 const dependencyLines = computed(() => {
 	const lines: { path: string; isCritical: boolean }[] = []
+	if (groupBy.value !== 'none') return []
+
 	const taskMap = new Map<string, { index: number; task: Task }>()
 	filteredTasks.value.forEach((t, i) => taskMap.set(t.id, { index: i, task: t }))
-	const ROW_HEIGHT = 44
-	const ROW_PADDING_TOP = 8
-	const BAR_HEIGHT = 40
-	const HALF_BAR = BAR_HEIGHT / 2
 
-	filteredTasks.value.forEach(task => {
+	filteredTasks.value.forEach((task, idx) => {
 		if (task.dependencyId && taskMap.has(task.dependencyId)) {
 			const parent = taskMap.get(task.dependencyId)!
-			const current = taskMap.get(task.id)!
 			const viewStart = visibleDateRange.value.start
 			const parentOffset = differenceInCalendarDays(parent.task.startDate!, viewStart)
-			const parentX = (parentOffset + parent.task.calendarDuration!) * cellWidth.value
-			const parentY = ROW_PADDING_TOP + parent.index * ROW_HEIGHT + HALF_BAR
+			const parentX = (parentOffset + (parent.task.isMilestone ? 1 : parent.task.calendarDuration || 1)) * cellWidth.value
+			const parentY = parent.index * 40 + 20
 			const currentOffset = differenceInCalendarDays(task.startDate!, viewStart)
 			const childX = currentOffset * cellWidth.value
-			const childY = ROW_PADDING_TOP + current.index * ROW_HEIGHT + HALF_BAR
+			const childY = idx * 40 + 20
 
 			const gap = 15
 			const path = `M ${parentX} ${parentY} L ${parentX + gap} ${parentY} L ${parentX + gap} ${childY} L ${childX} ${childY}`
@@ -202,24 +211,22 @@ const dependencyLines = computed(() => {
 	return lines
 })
 
-const getInitials = (name: string) => {
-	if (!name) return '?'
-	return name
-		.split(' ')
-		.map(n => n[0])
-		.slice(0, 2)
-		.join('')
-		.toUpperCase()
-}
-
+const getInitials = (name: string) =>
+	name
+		? name
+				.split(' ')
+				.map(n => n[0])
+				.slice(0, 2)
+				.join('')
+				.toUpperCase()
+		: '?'
 const isOverloaded = (task: Task) => {
-	if (!task.effort || !task.duration) return false
-	if (task.isCompleted) return false
+	if (task.isMilestone) return false
+	if (!task.effort || !task.duration || task.isCompleted) return false
 	const member = config.value.teamMembers.find(m => m.name === task.responsible)
 	const capacity = member ? member.capacity : 8
 	return task.effort > task.duration * capacity
 }
-
 const clearFilters = () => {
 	filterSearch.value = ''
 	filterResponsible.value = ''
@@ -261,65 +268,54 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 
 					<div v-if="viewMode !== 'project'" class="flex items-center gap-2 lg:ml-4 self-center sm:self-auto">
 						<button @click="navigateView('prev')" class="w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 transition-colors">&lt;</button>
-						<span class="text-sm font-bold text-slate-800 dark:text-slate-200 min-w-[150px] text-center select-none uppercase text-[11px] tracking-wide">{{ navigationLabel }}</span>
+						<span class="text-sm font-bold text-slate-800 dark:text-slate-200 min-w-[120px] text-center select-none uppercase text-[11px] tracking-wide">{{ navigationLabel }}</span>
 						<button @click="navigateView('next')" class="w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 transition-colors">&gt;</button>
 					</div>
 				</div>
 
-				<div class="relative ml-auto z-30">
-					<button
-						@click="showRiskModal = !showRiskModal"
-						class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold transition-all shadow-sm border"
-						:class="
-							automaticRisks.length > 0
-								? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/40'
-								: 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-50'
-						"
-					>
-						<svg v-if="automaticRisks.length > 0" class="w-5 h-5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-						</svg>
-						<svg v-else class="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-						</svg>
-						<span class="hidden sm:inline">Análise de Riscos</span>
-						<span v-if="automaticRisks.length > 0" class="bg-red-500 text-white text-[10px] px-1.5 rounded-full">{{ automaticRisks.length }}</span>
-					</button>
+				<div class="relative ml-auto z-30 flex items-center gap-3">
+					<div class="flex items-center bg-slate-100 dark:bg-slate-700 rounded-lg p-1 border border-slate-200 dark:border-slate-600">
+						<button @click="groupBy = 'none'" class="px-2 py-1 text-[10px] uppercase font-bold rounded" :class="groupBy === 'none' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'">Lista</button>
+						<button @click="groupBy = 'responsible'" class="px-2 py-1 text-[10px] uppercase font-bold rounded" :class="groupBy === 'responsible' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'">Pessoa</button>
+						<button @click="groupBy = 'sprint'" class="px-2 py-1 text-[10px] uppercase font-bold rounded" :class="groupBy === 'sprint' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'">Sprint</button>
+					</div>
 
-					<div v-if="showRiskModal" class="absolute right-0 top-full mt-2 w-80 md:w-96 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-fade-in origin-top-right">
-						<div class="p-3 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
-							<h3 class="font-bold text-slate-700 dark:text-slate-200 text-sm">Alertas do Projeto</h3>
-							<button @click="showRiskModal = false" class="text-slate-400 hover:text-slate-600">&times;</button>
-						</div>
-						<div class="max-h-80 overflow-y-auto p-2 custom-scrollbar">
-							<div v-if="automaticRisks.length === 0" class="p-4 text-center text-slate-500 text-sm flex flex-col items-center gap-2">
-								<svg class="w-8 h-8 text-green-500 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-								<p>Nenhum risco detectado. Bom trabalho!</p>
+					<div class="relative">
+						<button
+							@click="showRiskModal = !showRiskModal"
+							class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm border"
+							:class="automaticRisks.length > 0 ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-100' : 'bg-white dark:bg-slate-800 text-slate-500 border-slate-200 hover:bg-slate-50'"
+						>
+							<svg v-if="automaticRisks.length > 0" class="w-4 h-4 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+							</svg>
+							<svg v-else class="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+							<span class="hidden xl:inline">Riscos</span>
+							<span v-if="automaticRisks.length > 0" class="bg-red-500 text-white text-[9px] px-1 rounded-full">{{ automaticRisks.length }}</span>
+						</button>
+						<div v-if="showRiskModal" class="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-fade-in z-50">
+							<div class="p-3 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
+								<h3 class="font-bold text-slate-700 dark:text-slate-200 text-xs">Alertas</h3>
+								<button @click="showRiskModal = false" class="text-slate-400 hover:text-slate-600">&times;</button>
 							</div>
-							<ul v-else class="space-y-2">
-								<li v-for="(risk, idx) in automaticRisks" :key="idx" class="text-xs p-3 rounded bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 text-red-800 dark:text-red-300 flex gap-2">
-									<span class="font-bold mt-0.5">•</span>
-									<span>{{ risk }}</span>
-								</li>
-							</ul>
+							<div class="max-h-60 overflow-y-auto p-2 custom-scrollbar">
+								<ul class="space-y-1">
+									<li v-for="(risk, idx) in automaticRisks" :key="idx" class="text-[10px] p-2 rounded bg-red-50 dark:bg-red-900/10 text-red-800 dark:text-red-300 border border-red-100 dark:border-red-900/30">{{ risk }}</li>
+								</ul>
+								<div v-if="automaticRisks.length === 0" class="text-center p-4 text-slate-400 text-xs">Sem riscos.</div>
+							</div>
 						</div>
 					</div>
-				</div>
 
-				<div class="flex items-center gap-2 self-end lg:self-auto">
 					<button
 						@click="showCriticalPath = !showCriticalPath"
-						class="flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all text-xs font-bold whitespace-nowrap"
-						:class="
-							showCriticalPath
-								? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800 shadow-sm ring-1 ring-red-300 dark:ring-red-700'
-								: 'bg-slate-50 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-600'
-						"
+						class="flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all text-xs font-bold"
+						:class="showCriticalPath ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200' : 'bg-slate-50 dark:bg-slate-700 text-slate-500 border-slate-200 hover:bg-slate-100'"
 					>
 						<span class="relative flex h-2 w-2"
 							><span v-if="showCriticalPath" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2" :class="showCriticalPath ? 'bg-red-500' : 'bg-slate-400'"></span
 						></span>
-						Caminho Crítico
+						<span class="hidden md:inline">Caminho Crítico</span>
 					</button>
 				</div>
 			</div>
@@ -341,7 +337,7 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 						v-model="filterResponsible"
 						class="flex-1 lg:flex-none py-1.5 pl-2 pr-6 text-xs rounded border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none"
 					>
-						<option value="">Todos Responsáveis</option>
+						<option value="">Todos Resp.</option>
 						<option v-for="member in config.teamMembers" :key="member.name" :value="member.name">{{ member.name }}</option>
 					</select>
 					<select
@@ -349,34 +345,21 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 						class="flex-1 lg:flex-none py-1.5 pl-2 pr-6 text-xs rounded border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none"
 					>
 						<option value="">Todos Tipos</option>
-						<option value="frontend">Front-end</option>
-						<option value="backend">Back-end</option>
-						<option value="qualidade">Qualidade</option>
+						<option value="frontend">Front</option>
+						<option value="backend">Back</option>
+						<option value="qualidade">QA</option>
 						<option value="other">Outro</option>
 					</select>
 				</div>
-				<button v-if="hasFilters" @click="clearFilters" class="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 px-2 py-1.5 rounded transition-colors flex items-center gap-1 justify-center lg:justify-start">
+				<button v-if="hasFilters" @click="clearFilters" class="text-xs text-red-500 hover:text-red-700 px-2 py-1.5 flex items-center gap-1">
 					<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg> Limpar
 				</button>
-				<div class="hidden lg:block flex-1"></div>
-
-				<div class="flex flex-wrap justify-center lg:justify-end items-center gap-3 text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-2 lg:mt-0">
-					<span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 flex items-center justify-center text-[6px] font-bold text-slate-600 dark:text-slate-300">JS</span> Resp.</span>
-					<span class="flex items-center gap-1"><span class="text-amber-500 font-bold text-xs">⚠️</span> Sobrecarga</span>
-					<span class="flex items-center gap-1"><span class="w-2 h-2 bg-purple-100 dark:bg-purple-900/50 rounded border border-purple-200 dark:border-purple-800"></span> Feriado</span>
-					<span class="flex items-center gap-1"><span class="w-0.5 h-2 bg-red-500"></span> Prazo</span>
-				</div>
 			</div>
 		</div>
 
 		<div ref="ganttContainer" class="overflow-x-auto flex-1 relative custom-scrollbar bg-slate-50 dark:bg-slate-900/50">
 			<div :style="{ width: containerWidth + 'px' }" class="relative min-h-[400px]">
-				<div v-if="deadlinePosition > 0" class="absolute top-0 bottom-0 border-l-2 border-red-500 z-20 border-dashed pointer-events-none opacity-60" :style="{ left: deadlinePosition + 'px' }">
-					<div class="absolute -top-0 -left-[4px] w-2 h-2 bg-red-500 rounded-full"></div>
-					<div class="absolute bottom-2 -left-[60px] bg-red-100 dark:bg-red-900/80 text-red-700 dark:text-red-200 text-[10px] px-1 rounded border border-red-200 dark:border-red-800 font-bold whitespace-nowrap">Prazo Final</div>
-				</div>
-
-				<div class="sticky top-0 z-30 shadow-sm">
+				<div class="sticky top-0 z-20 shadow-sm">
 					<div class="flex bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 h-[25px] text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold">
 						<div v-for="(month, idx) in timelineMonths" :key="idx" class="flex items-center pl-2 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap overflow-hidden" :style="{ width: month.count * cellWidth + 'px' }">{{ month.label }}</div>
 					</div>
@@ -410,7 +393,7 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 						></div>
 					</div>
 
-					<svg class="absolute inset-0 pointer-events-none z-0" :width="containerWidth" :height="filteredTasks.length * 44 + 20" style="overflow: visible">
+					<svg class="absolute inset-0 pointer-events-none z-0" :width="containerWidth" :height="filteredTasks.length * 40 + 50" style="overflow: visible">
 						<path
 							v-for="(line, idx) in dependencyLines"
 							:key="idx"
@@ -423,55 +406,48 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 						/>
 					</svg>
 
-					<div class="py-2 space-y-1 overflow-hidden relative z-10">
-						<div v-for="task in filteredTasks" :key="task.id" class="relative h-10 flex items-center group">
-							<div class="absolute inset-x-0 h-full bg-blue-50/0 dark:group-hover:bg-blue-900/20 group-hover:bg-blue-50/50 transition-colors pointer-events-none"></div>
-
+					<div class="py-2 space-y-1 relative z-10">
+						<div v-for="group in groupedTasks" :key="group.id">
 							<div
-								class="absolute h-7 rounded-md shadow-sm text-[11px] text-white flex items-center px-2 transition-all z-10 overflow-hidden"
-								:class="{
-									'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900': editingTask?.id === task.id,
-									'border-2 border-amber-400': isOverloaded(task),
-									'ring-2 ring-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)] z-20': showCriticalPath && criticalPathIds.includes(task.id),
-									'opacity-40 grayscale': showCriticalPath && !criticalPathIds.includes(task.id) && editingTask?.id !== task.id,
-									'opacity-60': task.isCompleted,
-									'shadow-lg scale-[1.02]': isDragging && draggingTaskId === task.id,
-									'border-2 border-dashed border-slate-300': task.isNotPlanned && !isOverloaded(task),
-								}"
-								@mousedown="(e) => onTaskMouseDown(e, task, parseInt(getTaskStyle(task).left as string))"
-								:style="getTaskStyle(task)"
+								v-if="groupBy !== 'none'"
+								class="sticky left-0 bg-slate-100/90 dark:bg-slate-800/90 backdrop-blur-sm border-y border-slate-200 dark:border-slate-700 px-4 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2 z-10 my-2"
 							>
-								<span class="truncate font-medium drop-shadow-md flex items-center gap-2" :class="{ 'line-through text-white/80': task.isCompleted }">
-									{{ task.name }}
-									<span v-if="isOverloaded(task)" class="bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-200 rounded-full px-1 text-[9px] font-bold">⚠️</span>
-									<span v-if="task.isCompleted" class="bg-green-500 text-white rounded-full px-1 text-[9px] font-bold">✓</span>
-									<span v-if="task.isNotPlanned" class="bg-slate-700 text-white border border-white/30 rounded px-1 text-[8px] font-bold" title="Não Planejada">NP</span>
-								</span>
-								<div v-if="task.responsible" class="absolute right-1 top-0.5 w-5 h-5 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-[9px] font-bold border border-white/40 shadow-sm" :title="`Responsável: ${task.responsible}`">
-									{{ getInitials(task.responsible) }}
-								</div>
+								<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+								{{ group.title }}
+								<span class="ml-auto text-[9px] bg-slate-200 dark:bg-slate-700 px-1.5 rounded text-slate-500">{{ group.tasks.length }}</span>
 							</div>
 
-							<div
-								v-if="!isDragging"
-								class="absolute hidden group-hover:flex flex-col gap-1 z-30 bg-slate-800 dark:bg-slate-950 dark:border dark:border-slate-700 text-white text-xs px-3 py-2 rounded shadow-lg -top-16 pointer-events-none whitespace-nowrap"
-								:style="{ left: Math.max(0, parseInt(getTaskStyle(task).left as string)) + 'px' }"
-							>
-								<div class="font-bold flex justify-between gap-4">
-									<span :class="{ 'line-through': task.isCompleted }">{{ task.name }}</span>
-									<span v-if="criticalPathIds.includes(task.id)" class="text-[9px] bg-red-500 px-1 rounded">CRÍTICO</span>
-									<span class="uppercase text-[9px] bg-white/20 px-1 rounded h-fit">{{ task.type || 'other' }}</span>
+							<div v-for="task in group.tasks" :key="task.id" class="relative h-10 flex items-center group">
+								<div class="absolute inset-x-0 h-full bg-blue-50/0 dark:group-hover:bg-blue-900/20 group-hover:bg-blue-50/50 transition-colors pointer-events-none"></div>
+
+								<div
+									class="absolute h-7 rounded-md shadow-sm text-[11px] text-white flex items-center px-2 transition-all z-10 overflow-hidden"
+									:class="{
+										'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900': editingTask?.id === task.id,
+										'border-2 border-amber-400': isOverloaded(task),
+										'ring-2 ring-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)] z-20': showCriticalPath && criticalPathIds.includes(task.id),
+										'opacity-40 grayscale': showCriticalPath && !criticalPathIds.includes(task.id) && editingTask?.id !== task.id,
+										'opacity-60': task.isCompleted,
+										'shadow-lg scale-[1.02]': isDragging && draggingTaskId === task.id,
+										'border-2 border-dashed border-slate-300': task.isNotPlanned && !isOverloaded(task),
+										'rotate-45 !w-5 !h-5 !rounded-sm !p-0 justify-center ml-2.5': task.isMilestone,
+									}"
+									@mousedown="e => onTaskMouseDown(e, task)"
+									:style="getTaskStyle(task)"
+								>
+									<span v-if="!task.isMilestone" class="truncate font-medium drop-shadow-md flex items-center gap-2" :class="{ 'line-through text-white/80': task.isCompleted }">
+										{{ task.name }}
+										<span v-if="isOverloaded(task)" class="bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-200 rounded-full px-1 text-[9px] font-bold">⚠️</span>
+										<span v-if="task.isCompleted" class="bg-green-500 text-white rounded-full px-1 text-[9px] font-bold">✓</span>
+									</span>
+									<div v-if="task.responsible && !task.isMilestone" class="absolute right-1 top-0.5 w-5 h-5 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-[9px] font-bold border border-white/40 shadow-sm">
+										{{ getInitials(task.responsible) }}
+									</div>
 								</div>
-								<div class="text-slate-300 text-[10px]">{{ task.formattedStartDate }} - {{ task.formattedEndDate }}</div>
-								<div class="border-t border-slate-600 my-1"></div>
-								<div class="flex items-center gap-3 text-[10px]">
-									<span v-if="task.responsible">👤 {{ task.responsible }}</span>
-									<span v-if="task.effort">⏱️ {{ task.effort }}h</span>
-									<span>📅 {{ task.duration }} dias</span>
-								</div>
-								<div v-if="isOverloaded(task)" class="text-amber-400 font-bold text-[10px] mt-1">⚠️ Atenção: Pouco tempo para o esforço!</div>
-								<div v-if="task.isNotPlanned" class="text-slate-300 font-bold text-[10px] mt-1 italic">📌 Tarefa Não Planejada</div>
-								<div v-if="task.isCompleted" class="text-green-400 font-bold text-[10px] mt-1">✅ Concluída em {{ task.completedDate ? format(parseISO(task.completedDate), 'dd/MM') : '' }}</div>
+
+								<span v-if="task.isMilestone" class="absolute text-xs font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap ml-2 z-20 pointer-events-none" :style="{ left: (parseInt(getTaskStyle(task).left as string) + 25) + 'px' }">
+									{{ task.name }}
+								</span>
 							</div>
 						</div>
 					</div>
@@ -482,12 +458,9 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 </template>
 
 <style scoped>
-.custom-scrollbar {
-	scrollbar-width: thin;
-	scrollbar-color: #cbd5e1 #f1f5f9;
-}
 .custom-scrollbar::-webkit-scrollbar {
 	height: 8px;
+	width: 8px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
 	background: #f1f5f9;
@@ -496,7 +469,6 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 	background-color: #cbd5e1;
 	border-radius: 4px;
 }
-
 :global(.dark) .custom-scrollbar {
 	scrollbar-color: #475569 #1e293b;
 }
@@ -505,5 +477,18 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 }
 :global(.dark) .custom-scrollbar::-webkit-scrollbar-thumb {
 	background-color: #475569;
+}
+.animate-fade-in {
+	animation: fadeIn 0.2s ease-out;
+}
+@keyframes fadeIn {
+	from {
+		opacity: 0;
+		transform: translateY(5px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 </style>

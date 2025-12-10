@@ -18,6 +18,7 @@ const defaultFormState = {
 	responsible: '',
 	effort: 0,
 	sprintId: '',
+	isMilestone: false,
 }
 
 const formState = ref({ ...defaultFormState })
@@ -50,6 +51,7 @@ watch(editingTask, newTask => {
 			responsible: newTask.responsible || '',
 			effort: newTask.effort || 0,
 			sprintId: newTask.sprintId || '',
+			isMilestone: newTask.isMilestone || false,
 		}
 	} else {
 		resetForm()
@@ -59,14 +61,11 @@ watch(editingTask, newTask => {
 const getMembersBySector = (sectorType: string) => {
 	return config.value.teamMembers.filter(member => {
 		const s = (member.sector || '').toLowerCase()
-
 		if (s.includes('fullstack') || s.includes('full stack')) return true
-
 		if (sectorType === 'backend' && (s.includes('back') || s.includes('devops'))) return true
 		if (sectorType === 'frontend' && (s.includes('front') || s.includes('design'))) return true
 		if (sectorType === 'qualidade' && (s.includes('qa') || s.includes('qualidade'))) return true
 		if (sectorType === 'other') return true
-
 		return false
 	})
 }
@@ -96,13 +95,14 @@ const getCapacity = (respName: string) => {
 }
 
 watch([() => formState.value.effort, () => formState.value.responsible], ([newEffort]) => {
-	if (newEffort && newEffort > 0) {
+	if (newEffort && newEffort > 0 && !formState.value.isMilestone) {
 		const cap = getCapacity(formState.value.responsible)
 		formState.value.duration = Math.max(1, Math.ceil(newEffort / cap))
 	}
 })
 
 const capacityAlertSimple = computed(() => {
+	if (formState.value.isMilestone) return null
 	const hours = formState.value.effort
 	const days = formState.value.duration
 	const cap = getCapacity(formState.value.responsible)
@@ -112,7 +112,6 @@ const capacityAlertSimple = computed(() => {
 
 const resetForm = () => {
 	formState.value = { ...defaultFormState, color: colors[Math.floor(Math.random() * colors.length)] }
-
 	flowState.value = {
 		featureName: '',
 		usId: '',
@@ -142,13 +141,14 @@ const submitSimple = () => {
 			name: formState.value.name,
 			usId: formState.value.usId,
 			customId: formState.value.customId,
-			duration: formState.value.duration,
+			duration: formState.value.isMilestone ? 0 : formState.value.duration,
 			dependencyId: formState.value.dependencyId || null,
 			color: formState.value.color,
 			type: formState.value.type,
 			responsible: formState.value.responsible,
 			effort: formState.value.effort,
 			sprintId: formState.value.sprintId || undefined,
+			isMilestone: formState.value.isMilestone,
 		})
 	}
 	cancelEditing()
@@ -164,6 +164,7 @@ const submitFlow = () => {
 	const commonData = {
 		usId: flowState.value.usId,
 		sprintId: flowState.value.sprintId || undefined,
+		isMilestone: false,
 	}
 
 	if (flowState.value.backend.enabled) {
@@ -205,9 +206,7 @@ const submitFlow = () => {
 	if (flowState.value.qa.enabled) {
 		const effort = flowState.value.qa.effort
 		const cap = getCapacity(flowState.value.qa.responsible)
-
 		let depId = null
-
 		if (!flowState.value.isFullstack && flowState.value.frontend.enabled) {
 			depId = frontId
 		} else if (flowState.value.backend.enabled) {
@@ -308,19 +307,15 @@ const confirmCompletion = () => {
 								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">US ID</label>
 								<input v-model="flowState.usId" type="text" placeholder="Ex: US-200" class="w-full rounded border-slate-300 dark:border-slate-600 p-2 text-sm dark:bg-slate-700 dark:text-white" />
 							</div>
-
 							<div class="col-span-2 flex items-center gap-2 mt-1 p-2 bg-white dark:bg-slate-800 rounded border border-purple-100 dark:border-purple-900/50">
 								<input type="checkbox" id="isFullstack" v-model="flowState.isFullstack" class="rounded text-purple-600 focus:ring-purple-500" />
-								<label for="isFullstack" class="text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer select-none"> Feature Fullstack (Remove etapa de Frontend) </label>
+								<label for="isFullstack" class="text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer select-none">Feature Fullstack (Remove etapa de Frontend)</label>
 							</div>
 						</div>
 					</div>
-
 					<div class="space-y-4">
 						<div class="flex gap-3 items-start p-3 rounded-lg border transition-colors" :class="flowState.backend.enabled ? 'border-green-200 bg-green-50/30 dark:border-green-900/30 dark:bg-green-900/10' : 'border-slate-100 opacity-50'">
-							<div class="pt-2">
-								<input type="checkbox" v-model="flowState.backend.enabled" class="rounded text-green-600 focus:ring-green-500" />
-							</div>
+							<div class="pt-2"><input type="checkbox" v-model="flowState.backend.enabled" class="rounded text-green-600 focus:ring-green-500" /></div>
 							<div class="flex-1 grid grid-cols-2 gap-3">
 								<div class="col-span-2 text-xs font-bold text-green-700 dark:text-green-400 uppercase">1. {{ flowState.isFullstack ? 'Fullstack' : 'Backend' }}</div>
 								<div>
@@ -329,56 +324,36 @@ const confirmCompletion = () => {
 										<option v-for="m in getMembersBySector('backend')" :key="m.name" :value="m.name">{{ m.name }}</option>
 									</select>
 								</div>
-								<div>
-									<input v-model.number="flowState.backend.effort" type="number" placeholder="Horas" :disabled="!flowState.backend.enabled" class="w-full rounded border-slate-300 dark:border-slate-600 p-1.5 text-xs dark:bg-slate-700 dark:text-white" />
-								</div>
+								<div><input v-model.number="flowState.backend.effort" type="number" placeholder="Horas" :disabled="!flowState.backend.enabled" class="w-full rounded border-slate-300 dark:border-slate-600 p-1.5 text-xs dark:bg-slate-700 dark:text-white" /></div>
 							</div>
 						</div>
-
 						<div v-if="!flowState.isFullstack" class="flex gap-3 items-start p-3 rounded-lg border transition-colors" :class="flowState.frontend.enabled ? 'border-blue-200 bg-blue-50/30 dark:border-blue-900/30 dark:bg-blue-900/10' : 'border-slate-100 opacity-50'">
-							<div class="pt-2">
-								<input type="checkbox" v-model="flowState.frontend.enabled" class="rounded text-blue-600 focus:ring-blue-500" />
-							</div>
+							<div class="pt-2"><input type="checkbox" v-model="flowState.frontend.enabled" class="rounded text-blue-600 focus:ring-blue-500" /></div>
 							<div class="flex-1 grid grid-cols-2 gap-3">
-								<div class="col-span-2 text-xs font-bold text-blue-700 dark:text-blue-400 uppercase flex items-center gap-2">
-									2. Frontend
-									<span v-if="flowState.backend.enabled" class="text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-500 px-1 rounded lowercase font-normal">depende de backend</span>
-								</div>
+								<div class="col-span-2 text-xs font-bold text-blue-700 dark:text-blue-400 uppercase flex items-center gap-2">2. Frontend</div>
 								<div>
 									<select v-model="flowState.frontend.responsible" :disabled="!flowState.frontend.enabled" class="w-full rounded border-slate-300 dark:border-slate-600 p-1.5 text-xs dark:bg-slate-700 dark:text-white">
 										<option value="">Responsável</option>
 										<option v-for="m in getMembersBySector('frontend')" :key="m.name" :value="m.name">{{ m.name }}</option>
 									</select>
 								</div>
-								<div>
-									<input v-model.number="flowState.frontend.effort" type="number" placeholder="Horas" :disabled="!flowState.frontend.enabled" class="w-full rounded border-slate-300 dark:border-slate-600 p-1.5 text-xs dark:bg-slate-700 dark:text-white" />
-								</div>
+								<div><input v-model.number="flowState.frontend.effort" type="number" placeholder="Horas" :disabled="!flowState.frontend.enabled" class="w-full rounded border-slate-300 dark:border-slate-600 p-1.5 text-xs dark:bg-slate-700 dark:text-white" /></div>
 							</div>
 						</div>
-
 						<div class="flex gap-3 items-start p-3 rounded-lg border transition-colors" :class="flowState.qa.enabled ? 'border-purple-200 bg-purple-50/30 dark:border-purple-900/30 dark:bg-purple-900/10' : 'border-slate-100 opacity-50'">
-							<div class="pt-2">
-								<input type="checkbox" v-model="flowState.qa.enabled" class="rounded text-purple-600 focus:ring-purple-500" />
-							</div>
+							<div class="pt-2"><input type="checkbox" v-model="flowState.qa.enabled" class="rounded text-purple-600 focus:ring-purple-500" /></div>
 							<div class="flex-1 grid grid-cols-2 gap-3">
-								<div class="col-span-2 text-xs font-bold text-purple-700 dark:text-purple-400 uppercase flex items-center gap-2">
-									{{ flowState.isFullstack ? '2.' : '3.' }} QA / Teste
-									<span v-if="!flowState.isFullstack && flowState.frontend.enabled" class="text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-500 px-1 rounded lowercase font-normal">depende de frontend</span>
-									<span v-else-if="flowState.backend.enabled" class="text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-500 px-1 rounded lowercase font-normal">depende de fullstack</span>
-								</div>
+								<div class="col-span-2 text-xs font-bold text-purple-700 dark:text-purple-400 uppercase flex items-center gap-2">{{ flowState.isFullstack ? '2.' : '3.' }} QA / Teste</div>
 								<div>
 									<select v-model="flowState.qa.responsible" :disabled="!flowState.qa.enabled" class="w-full rounded border-slate-300 dark:border-slate-600 p-1.5 text-xs dark:bg-slate-700 dark:text-white">
 										<option value="">Responsável</option>
 										<option v-for="m in getMembersBySector('qa')" :key="m.name" :value="m.name">{{ m.name }}</option>
 									</select>
 								</div>
-								<div>
-									<input v-model.number="flowState.qa.effort" type="number" placeholder="Horas" :disabled="!flowState.qa.enabled" class="w-full rounded border-slate-300 dark:border-slate-600 p-1.5 text-xs dark:bg-slate-700 dark:text-white" />
-								</div>
+								<div><input v-model.number="flowState.qa.effort" type="number" placeholder="Horas" :disabled="!flowState.qa.enabled" class="w-full rounded border-slate-300 dark:border-slate-600 p-1.5 text-xs dark:bg-slate-700 dark:text-white" /></div>
 							</div>
 						</div>
 					</div>
-
 					<div class="pt-4 border-t border-slate-100 dark:border-slate-700 flex gap-3">
 						<button type="button" @click="handleCancel" class="px-4 py-2 rounded border border-slate-300 text-slate-600 font-bold hover:bg-slate-50 text-sm">Cancelar</button>
 						<button type="submit" class="flex-1 bg-purple-600 text-white py-2 px-4 rounded hover:bg-purple-700 font-bold shadow-lg shadow-purple-200 dark:shadow-none text-sm">Criar Fluxo Completo</button>
@@ -419,7 +394,12 @@ const confirmCompletion = () => {
 						/>
 					</div>
 
-					<div class="grid grid-cols-2 gap-5">
+					<div class="flex items-center gap-2 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-100 dark:border-indigo-900/30">
+						<input type="checkbox" id="isMilestone" v-model="formState.isMilestone" class="rounded text-indigo-600 focus:ring-indigo-500" />
+						<label for="isMilestone" class="text-sm font-medium text-indigo-800 dark:text-indigo-200 cursor-pointer"> 🚩 É um Marco (Milestone)? <span class="text-xs font-normal opacity-70 block">Marcos têm duração fixa e servem como pontos de controle.</span> </label>
+					</div>
+
+					<div class="grid grid-cols-2 gap-5" v-if="!formState.isMilestone">
 						<div>
 							<label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Tipo</label>
 							<select v-model="formState.type" class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-700 dark:text-white transition-colors">
@@ -456,15 +436,14 @@ const confirmCompletion = () => {
 					</div>
 
 					<div class="grid grid-cols-2 gap-5">
-						<div>
+						<div v-if="!formState.isMilestone">
 							<label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Responsável</label>
 							<select v-model="formState.responsible" class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-700 dark:text-white transition-colors">
 								<option value="">-- Selecione --</option>
 								<option v-for="member in filteredMembersSimple" :key="member.name" :value="member.name">{{ member.name }} ({{ member.sector || 'Geral' }})</option>
 							</select>
-							<p v-if="filteredMembersSimple.length === 0 && formState.type !== 'other' && config.teamMembers.length > 0" class="text-[10px] text-amber-500 mt-1 leading-tight">Ninguém do setor "{{ formState.type }}" encontrado.</p>
 						</div>
-						<div>
+						<div v-if="!formState.isMilestone">
 							<label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Esforço Estimado</label>
 							<div class="relative">
 								<input
@@ -478,7 +457,7 @@ const confirmCompletion = () => {
 						</div>
 					</div>
 
-					<div class="grid grid-cols-2 gap-5">
+					<div class="grid grid-cols-2 gap-5" v-if="!formState.isMilestone">
 						<div>
 							<label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Duração</label>
 							<div class="relative">
@@ -491,7 +470,6 @@ const confirmCompletion = () => {
 								/>
 								<span class="absolute right-3 top-2.5 text-xs text-slate-400 dark:text-slate-300 font-bold">DIAS</span>
 							</div>
-							<span class="text-[10px] text-blue-500 dark:text-blue-400 mt-1 block font-medium" v-if="formState.effort > 0">Automático ({{ Math.ceil(formState.effort / getCapacity(formState.responsible)) }}d)</span>
 						</div>
 						<div>
 							<label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Dependência</label>
@@ -500,6 +478,13 @@ const confirmCompletion = () => {
 								<option v-for="t in tasks" :key="t.id" :value="t.id" v-show="!editingTask || t.id !== editingTask.id">{{ t.name }}</option>
 							</select>
 						</div>
+					</div>
+					<div v-else>
+						<label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">Dependência (Define a data do Marco)</label>
+						<select v-model="formState.dependencyId" class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-700 dark:text-white transition-colors">
+							<option value="">Nenhuma (Início do Projeto)</option>
+							<option v-for="t in tasks" :key="t.id" :value="t.id" v-show="!editingTask || t.id !== editingTask.id">{{ t.name }}</option>
+						</select>
 					</div>
 
 					<div v-if="capacityAlertSimple" class="text-xs text-amber-700 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/40 p-3 rounded-lg border border-amber-200 dark:border-amber-800 flex items-start gap-2">

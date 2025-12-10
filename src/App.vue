@@ -6,6 +6,7 @@ import ProjectActions from '@/components/ProjectActions.vue'
 import GanttChart from '@/components/GanttChart.vue'
 import DashboardView from '@/components/DashboardView.vue'
 import TutorialView from '@/components/TutorialView.vue'
+import ToastContainer from '@/components/ToastContainer.vue'
 import { useGantt } from '@/composables/useGantt'
 import { useTheme } from '@/composables/useTheme'
 
@@ -31,6 +32,7 @@ const completeTutorial = () => {
 
 <template>
 	<div class="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300">
+		<ToastContainer />
 		<header class="bg-slate-900 dark:bg-slate-950 text-white p-4 shadow-md z-50 sticky top-0 border-b border-slate-800">
 			<div class="max-w-[1600px] mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
 				<div class="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
@@ -48,8 +50,7 @@ const completeTutorial = () => {
 							:class="currentTab === 'dashboard' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
 							title="Dashboard"
 						>
-							<span class="text-lg">📊</span>
-							<span class="hidden sm:inline">Dashboard</span>
+							<span class="text-lg">📊</span> <span class="hidden sm:inline">Dashboard</span>
 						</button>
 						<button
 							@click="currentTab = 'gantt'"
@@ -57,8 +58,7 @@ const completeTutorial = () => {
 							:class="currentTab === 'gantt' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
 							title="Cronograma"
 						>
-							<span class="text-lg">📅</span>
-							<span class="hidden sm:inline">Cronograma</span>
+							<span class="text-lg">📅</span> <span class="hidden sm:inline">Cronograma</span>
 						</button>
 						<button
 							@click="currentTab = 'config'"
@@ -66,8 +66,7 @@ const completeTutorial = () => {
 							:class="currentTab === 'config' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
 							title="Configurações"
 						>
-							<span class="text-lg">⚙️</span>
-							<span class="hidden sm:inline">Configurações</span>
+							<span class="text-lg">⚙️</span> <span class="hidden sm:inline">Configurações</span>
 						</button>
 						<button
 							@click="currentTab = 'tutorial'"
@@ -75,8 +74,7 @@ const completeTutorial = () => {
 							:class="currentTab === 'tutorial' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
 							title="Tutorial"
 						>
-							<span class="text-lg">🎓</span>
-							<span class="hidden sm:inline">Tutorial</span>
+							<span class="text-lg">🎓</span> <span class="hidden sm:inline">Tutorial</span>
 						</button>
 					</nav>
 				</div>

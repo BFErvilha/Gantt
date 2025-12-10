@@ -22,6 +22,8 @@ const steps = [
 			'Equipe e Capacidade: Cadastre os membros e suas cargas horárias (ex: 8h/dia). Isso define a duração real das tarefas.',
 			'Sprints: Defina os ciclos de desenvolvimento. O sistema avisará se uma tarefa "estourar" a data da sprint.',
 			'Feriados: Adicione dias não úteis para o cálculo pular essas datas.',
+			'Linha de Base (Baseline): Salve uma "foto" das datas originais para medir atrasos no Dashboard.',
+			'Importar/Exportar: Traga dados do Excel ou gere relatórios PDF.',
 		],
 	},
 	{
@@ -30,8 +32,10 @@ const steps = [
 		highlight: 'Botão: Nova Tarefa',
 		content: 'Você tem dois modos poderosos para adicionar trabalho:',
 		points: [
-			'Tarefa Simples: Para atividades isoladas. O sistema sugere a duração baseada no esforço (horas) e na capacidade do responsável.',
-			'Fluxo Completo (Recomendado): Cria automaticamente a cadeia "Backend → Frontend → QA" (ou Fullstack) já com as dependências vinculadas.',
+			'Tarefa Simples: Para atividades isoladas. O sistema sugere a duração baseada no esforço (horas).',
+			'Fluxo Completo: Cria automaticamente a cadeia "Backend → Frontend → QA". Use a opção "Fullstack" para ajustar o fluxo.',
+			'Marcos (Milestones): Crie pontos de entrega importantes (losangos) com duração zero.',
+			'IDs de Rastreabilidade: Vincule tarefas com IDs de User Stories (US) para melhor organização.',
 			'Filtro Inteligente: Ao selecionar um setor, mostramos apenas os profissionais qualificados.',
 		],
 	},
@@ -41,10 +45,11 @@ const steps = [
 		highlight: 'Aba: Cronograma',
 		content: 'A visualização principal onde você gerencia o tempo.',
 		points: [
+			'Drag & Drop: Arraste as barras coloridas para mudar datas ou duração rapidamente.',
+			'Swimlanes (Agrupamento): Organize o gráfico por "Pessoa" ou "Sprint" usando os botões no topo.',
 			'Identificação Visual: Use cores personalizadas para organizar tarefas por tipo, setor ou prioridade.',
 			'Dependências: Setas mostram o que impede o quê (tarefa bloqueadora → tarefa dependente).',
-			'Caminho Crítico: Use o botão de filtro para ver as tarefas que impactam diretamente o prazo final.',
-			'Análise de Riscos: Fique de olho no botão de alerta no topo. Ele avisa sobre sobrecarga de equipe e conflitos de férias.',
+			'Caminho Crítico e Riscos: Destaque gargalos e receba alertas de sobrecarga.',
 		],
 	},
 	{
@@ -53,10 +58,11 @@ const steps = [
 		highlight: 'Aba: Dashboard',
 		content: 'Acompanhe a saúde do projeto sem planilhas complexas.',
 		points: [
+			'Desvio de Prazos: Veja no painel de Baseline quantos dias o projeto atrasou em relação ao planejado.',
 			'Progresso Físico: % de tempo decorrido vs. % de tarefas entregues.',
 			'Carga de Trabalho: Gráficos mostram quem está sobrecarregado (vermelho) ou ocioso (azul).',
 			'Status das Sprints: Visão clara do planejado vs. realizado por ciclo.',
-			'Carry-over: Monitoramento de tarefas não planejadas que entraram no escopo.',
+			'Notificações: O sistema agora usa alertas discretos (Toasts) para confirmar suas ações.',
 		],
 	},
 ]
