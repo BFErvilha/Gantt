@@ -285,9 +285,13 @@ export function useGantt() {
 	}
 	const totalProjectDays = computed(() => differenceInCalendarDays(visibleDateRange.value.end, visibleDateRange.value.start) + 1)
 
+	// --- CORREÇÃO APLICADA AQUI ---
 	const addTask = (task: Partial<Task>) => {
+		// Agora aceita um ID pré-definido (do fluxo) ou gera um novo (tarefa simples)
+		const idToUse = task.id || crypto.randomUUID()
+
 		tasks.value.push({
-			id: crypto.randomUUID(),
+			id: idToUse,
 			usId: task.usId || '',
 			customId: task.customId || '',
 			name: task.name || 'Nova Tarefa',
@@ -303,6 +307,7 @@ export function useGantt() {
 			completedDate: undefined,
 		})
 	}
+	// -------------------------------
 
 	const updateTask = (updatedTask: Task) => {
 		const index = tasks.value.findIndex(t => t.id === updatedTask.id)
