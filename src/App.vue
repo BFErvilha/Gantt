@@ -42,17 +42,41 @@ const completeTutorial = () => {
 					</div>
 
 					<nav class="flex bg-slate-800 dark:bg-slate-900 rounded-lg p-1 border border-slate-700 overflow-x-auto">
-						<button @click="currentTab = 'dashboard'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap" :class="currentTab === 'dashboard' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'">
-							<span class="hidden sm:inline">📊</span> Dashboard
+						<button
+							@click="currentTab = 'dashboard'"
+							class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap"
+							:class="currentTab === 'dashboard' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
+							title="Dashboard"
+						>
+							<span class="text-lg">📊</span>
+							<span class="hidden sm:inline">Dashboard</span>
 						</button>
-						<button @click="currentTab = 'gantt'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap" :class="currentTab === 'gantt' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'">
-							<span class="hidden sm:inline">📅</span> Cronograma
+						<button
+							@click="currentTab = 'gantt'"
+							class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap"
+							:class="currentTab === 'gantt' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
+							title="Cronograma"
+						>
+							<span class="text-lg">📅</span>
+							<span class="hidden sm:inline">Cronograma</span>
 						</button>
-						<button @click="currentTab = 'config'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap" :class="currentTab === 'config' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'">
-							<span class="hidden sm:inline">⚙️</span> Configurações
+						<button
+							@click="currentTab = 'config'"
+							class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap"
+							:class="currentTab === 'config' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
+							title="Configurações"
+						>
+							<span class="text-lg">⚙️</span>
+							<span class="hidden sm:inline">Configurações</span>
 						</button>
-						<button @click="currentTab = 'tutorial'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap" :class="currentTab === 'tutorial' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'">
-							<span class="hidden sm:inline">🎓</span> Tutorial
+						<button
+							@click="currentTab = 'tutorial'"
+							class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap"
+							:class="currentTab === 'tutorial' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
+							title="Tutorial"
+						>
+							<span class="text-lg">🎓</span>
+							<span class="hidden sm:inline">Tutorial</span>
 						</button>
 					</nav>
 				</div>
