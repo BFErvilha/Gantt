@@ -18,6 +18,8 @@ export interface Sprint {
 export interface Task {
 	id: string
 	name: string
+	usId?: string
+	customId?: string
 	duration: number
 	dependencyId: string | null
 	color: string
@@ -267,6 +269,8 @@ export function useGantt() {
 	const importTasks = (newTasks: Partial<Task>[]) => {
 		tasks.value = newTasks.map(t => ({
 			id: t.id || crypto.randomUUID(),
+			usId: t.usId || '',
+			customId: t.customId || '',
 			name: t.name || 'Sem nome',
 			duration: t.duration || 1,
 			dependencyId: t.dependencyId || null,
@@ -281,9 +285,15 @@ export function useGantt() {
 	}
 	const totalProjectDays = computed(() => differenceInCalendarDays(visibleDateRange.value.end, visibleDateRange.value.start) + 1)
 
+	// --- CORREÇÃO APLICADA AQUI ---
 	const addTask = (task: Partial<Task>) => {
+		// Agora aceita um ID pré-definido (do fluxo) ou gera um novo (tarefa simples)
+		const idToUse = task.id || crypto.randomUUID()
+
 		tasks.value.push({
-			id: crypto.randomUUID(),
+			id: idToUse,
+			usId: task.usId || '',
+			customId: task.customId || '',
 			name: task.name || 'Nova Tarefa',
 			duration: task.duration || 1,
 			dependencyId: task.dependencyId || null,
@@ -297,6 +307,7 @@ export function useGantt() {
 			completedDate: undefined,
 		})
 	}
+	// -------------------------------
 
 	const updateTask = (updatedTask: Task) => {
 		const index = tasks.value.findIndex(t => t.id === updatedTask.id)
@@ -402,6 +413,14 @@ export function useGantt() {
 			endDate,
 		})
 		config.value.sprints.sort((a, b) => a.startDate.localeCompare(b.startDate))
+	}
+
+	const updateSprint = (id: string, name: string, startDate: string, endDate: string) => {
+		const index = config.value.sprints.findIndex(s => s.id === id)
+		if (index !== -1) {
+			config.value.sprints[index] = { ...config.value.sprints[index], name, startDate, endDate }
+			config.value.sprints.sort((a, b) => a.startDate.localeCompare(b.startDate))
+		}
 	}
 
 	const removeSprint = (id: string) => {
@@ -558,6 +577,7 @@ export function useGantt() {
 		filterResponsible,
 		filterType,
 		addSprint,
+		updateSprint,
 		removeSprint,
 		projectDeadlineComputed,
 	}

@@ -128,10 +128,16 @@ export function useDataPersistence() {
 		XLSX.writeFile(wb, 'Modelo-Importacao-Gantt.xlsx')
 	}
 
+	const clearAllData = () => {
+		localStorage.removeItem('gantt-pro-tasks')
+		localStorage.removeItem('gantt-pro-config')
+	}
+
 	return {
 		exportToPDF,
 		exportToExcel,
 		importFromExcel,
 		downloadImportTemplate,
+		clearAllData,
 	}
 }

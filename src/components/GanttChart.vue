@@ -4,9 +4,10 @@ import { useGantt, type Task } from '@/composables/useGantt'
 import { format, addDays, startOfDay, isWeekend, differenceInCalendarDays, startOfWeek, endOfWeek, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
-const { filteredTasks, config, totalProjectDays, setEditingTask, editingTask, criticalPathIds, viewMode, visibleDateRange, setViewMode, navigateView, currentViewDate, filterSearch, filterResponsible, filterType, moveTask } = useGantt()
+const { filteredTasks, config, totalProjectDays, setEditingTask, editingTask, criticalPathIds, viewMode, visibleDateRange, setViewMode, navigateView, currentViewDate, filterSearch, filterResponsible, filterType, moveTask, automaticRisks } = useGantt()
 
 const showCriticalPath = ref(false)
+const showRiskModal = ref(false)
 const ganttContainer = ref<HTMLDivElement | null>(null)
 const containerWidthPx = ref(0)
 
@@ -262,6 +263,46 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 						<button @click="navigateView('prev')" class="w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 transition-colors">&lt;</button>
 						<span class="text-sm font-bold text-slate-800 dark:text-slate-200 min-w-[150px] text-center select-none uppercase text-[11px] tracking-wide">{{ navigationLabel }}</span>
 						<button @click="navigateView('next')" class="w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 transition-colors">&gt;</button>
+					</div>
+				</div>
+
+				<div class="relative ml-auto z-30">
+					<button
+						@click="showRiskModal = !showRiskModal"
+						class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold transition-all shadow-sm border"
+						:class="
+							automaticRisks.length > 0
+								? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/40'
+								: 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+						"
+					>
+						<svg v-if="automaticRisks.length > 0" class="w-5 h-5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+						</svg>
+						<svg v-else class="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+						</svg>
+						<span class="hidden sm:inline">Análise de Riscos</span>
+						<span v-if="automaticRisks.length > 0" class="bg-red-500 text-white text-[10px] px-1.5 rounded-full">{{ automaticRisks.length }}</span>
+					</button>
+
+					<div v-if="showRiskModal" class="absolute right-0 top-full mt-2 w-80 md:w-96 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-fade-in origin-top-right">
+						<div class="p-3 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
+							<h3 class="font-bold text-slate-700 dark:text-slate-200 text-sm">Alertas do Projeto</h3>
+							<button @click="showRiskModal = false" class="text-slate-400 hover:text-slate-600">&times;</button>
+						</div>
+						<div class="max-h-80 overflow-y-auto p-2 custom-scrollbar">
+							<div v-if="automaticRisks.length === 0" class="p-4 text-center text-slate-500 text-sm flex flex-col items-center gap-2">
+								<svg class="w-8 h-8 text-green-500 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+								<p>Nenhum risco detectado. Bom trabalho!</p>
+							</div>
+							<ul v-else class="space-y-2">
+								<li v-for="(risk, idx) in automaticRisks" :key="idx" class="text-xs p-3 rounded bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 text-red-800 dark:text-red-300 flex gap-2">
+									<span class="font-bold mt-0.5">•</span>
+									<span>{{ risk }}</span>
+								</li>
+							</ul>
+						</div>
 					</div>
 				</div>
 
