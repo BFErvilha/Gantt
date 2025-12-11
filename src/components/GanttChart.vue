@@ -4,7 +4,29 @@ import { useGantt, type Task } from '@/composables/useGantt'
 import { format, addDays, startOfWeek, endOfWeek, differenceInCalendarDays, isWeekend } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
-const { filteredTasks, config, totalProjectDays, setEditingTask, editingTask, criticalPathIds, viewMode, visibleDateRange, setViewMode, navigateView, currentViewDate, filterSearch, filterResponsible, filterType, moveTask, automaticRisks } = useGantt()
+const {
+	filteredTasks,
+	config,
+	totalProjectDays,
+	setEditingTask,
+	editingTask,
+	criticalPathIds,
+	viewMode,
+	visibleDateRange,
+	setViewMode,
+	navigateView,
+	currentViewDate,
+	filterSearch,
+	filterResponsible,
+	filterType,
+	filterSquad,
+	moveTask,
+	automaticRisks,
+	getOptimizationSuggestions,
+	createSnapshot,
+	restoreSnapshot,
+	tasksSnapshot,
+} = useGantt()
 
 const showCriticalPath = ref(false)
 const showRiskModal = ref(false)
@@ -16,6 +38,27 @@ const isDragging = ref(false)
 const draggingTaskId = ref<string | null>(null)
 const dragStartX = ref(0)
 const dragCurrentX = ref(0)
+
+const showOptimizationModal = ref(false)
+const optimizationResults = ref<string[]>([])
+
+const handleOptimize = () => {
+	if (!tasksSnapshot.value) {
+		createSnapshot()
+	}
+	optimizationResults.value = getOptimizationSuggestions()
+	showOptimizationModal.value = true
+}
+
+const handleUndo = () => {
+	if (confirm('Deseja descartar todas as alterações atuais e voltar para o ponto salvo?')) {
+		restoreSnapshot()
+	}
+}
+
+const handleCreateBackup = () => {
+	createSnapshot()
+}
 
 const onTaskMouseDown = (e: MouseEvent, task: Task) => {
 	if (e.button !== 0 || viewMode.value === 'month') return
@@ -122,7 +165,22 @@ const groupedTasks = computed(() => {
 		if (groupBy.value === 'responsible') {
 			key = task.responsible || 'Sem Responsável'
 		} else if (groupBy.value === 'sprint') {
-			key = task.sprintId ? config.value.sprints.find(s => s.id === task.sprintId)?.name || 'Sprint Desconhecida' : 'Não Planejado'
+			if (task.sprintId) {
+				const sprint = config.value.sprints.find(s => s.id === task.sprintId)
+				if (sprint) {
+					// [NOVO] Diferencia sprints de nomes iguais se estiver vendo tudo
+					if (!filterSquad.value && sprint.squadId) {
+						const squad = config.value.squads.find(s => s.id === sprint.squadId)
+						key = squad ? `${squad.name} : ${sprint.name}` : sprint.name
+					} else {
+						key = sprint.name
+					}
+				} else {
+					key = 'Sprint Desconhecida'
+				}
+			} else {
+				key = 'Não Planejado'
+			}
 		}
 		if (!groups[key]) groups[key] = []
 		groups[key].push(task)
@@ -242,6 +300,18 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 				<div class="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full lg:w-auto">
 					<h2 class="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">Gantt</h2>
 
+					<div v-if="config.squads.length > 0" class="flex items-center gap-2">
+						<select
+							v-model="filterSquad"
+							class="bg-indigo-50 dark:bg-slate-950 text-indigo-700 dark:text-indigo-100 font-bold text-xs py-1.5 px-2 rounded border border-indigo-200 dark:border-indigo-900 cursor-pointer focus:ring-2 focus:ring-indigo-500 outline-none transition-colors dark:[color-scheme:dark]"
+						>
+							<option value="">Todas as Squads (Overview)</option>
+							<option v-for="squad in config.squads" :key="squad.id" :value="squad.id">
+								{{ squad.name }}
+							</option>
+						</select>
+					</div>
+
 					<div class="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1 gap-1 overflow-x-auto max-w-full">
 						<button
 							@click="setViewMode('project')"
@@ -278,6 +348,32 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 						<button @click="groupBy = 'none'" class="px-2 py-1 text-[10px] uppercase font-bold rounded" :class="groupBy === 'none' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'">Lista</button>
 						<button @click="groupBy = 'responsible'" class="px-2 py-1 text-[10px] uppercase font-bold rounded" :class="groupBy === 'responsible' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'">Pessoa</button>
 						<button @click="groupBy = 'sprint'" class="px-2 py-1 text-[10px] uppercase font-bold rounded" :class="groupBy === 'sprint' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'">Sprint</button>
+					</div>
+
+					<div class="flex items-center gap-1">
+						<button @click="handleCreateBackup" class="p-1.5 rounded-lg border transition-all text-xs font-bold text-slate-500 border-slate-200 hover:bg-slate-100 dark:text-slate-400 dark:border-slate-600 dark:hover:bg-slate-700" title="Salvar Estado Atual (Backup)">
+							<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+							</svg>
+						</button>
+
+						<button
+							v-if="tasksSnapshot"
+							@click="handleUndo"
+							class="p-1.5 rounded-lg border transition-all text-xs font-bold bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800"
+							title="Desfazer Alterações (Restaurar Backup)"
+						>
+							<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+							</svg>
+						</button>
+
+						<button @click="handleOptimize" class="flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-xs font-bold bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100">
+							<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+							</svg>
+							<span class="hidden xl:inline">Otimizar</span>
+						</button>
 					</div>
 
 					<div class="relative">
@@ -451,6 +547,44 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 							</div>
 						</div>
 					</div>
+				</div>
+			</div>
+		</div>
+
+		<div v-if="showOptimizationModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+			<div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]">
+				<div class="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-indigo-50 dark:bg-indigo-900/20">
+					<h3 class="font-bold text-indigo-800 dark:text-indigo-200 flex items-center gap-2">
+						<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+						Sugestões de Otimização de Sprint
+					</h3>
+					<button @click="showOptimizationModal = false" class="text-slate-400 hover:text-slate-600">&times;</button>
+				</div>
+				<div class="p-6 overflow-y-auto custom-scrollbar space-y-4">
+					<p class="text-sm text-slate-600 dark:text-slate-300">Analisamos as prioridades (Meta > Item), dependências e capacidade da equipe para sugerir a melhor ordem de execução:</p>
+
+					<div v-if="optimizationResults.length > 0" class="space-y-2">
+						<div
+							v-for="(msg, idx) in optimizationResults"
+							:key="idx"
+							class="p-3 rounded border text-sm flex gap-3 items-start"
+							:class="
+								msg.includes('PRIORIDADE')
+									? 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-200'
+									: msg.includes('SOBRECARGA')
+									? 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-200'
+									: msg.includes('SEQUÊNCIA')
+									? 'bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-200'
+									: 'bg-green-50 border-green-200 text-green-800 dark:bg-green-900/20 dark:border-green-800 dark:text-green-200'
+							"
+						>
+							<span class="text-xl mt-[-2px]">{{ msg.includes('PRIORIDADE') ? '⚡' : msg.includes('SOBRECARGA') ? '⚠️' : msg.includes('SEQUÊNCIA') ? '🔢' : '✅' }}</span>
+							<span>{{ msg }}</span>
+						</div>
+					</div>
+				</div>
+				<div class="p-4 border-t border-slate-100 dark:border-slate-700 flex justify-end">
+					<button @click="showOptimizationModal = false" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-bold text-sm">Entendido</button>
 				</div>
 			</div>
 		</div>
