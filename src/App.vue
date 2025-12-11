@@ -5,16 +5,17 @@ import ProjectConfig from '@/components/ProjectConfig.vue'
 import ProjectActions from '@/components/ProjectActions.vue'
 import GanttChart from '@/components/GanttChart.vue'
 import DashboardView from '@/components/DashboardView.vue'
+import SquadManagement from '@/components/SquadManagement.vue' // [NOVO] Importação
 import TutorialView from '@/components/TutorialView.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 import { useGantt } from '@/composables/useGantt'
 import { useTheme } from '@/composables/useTheme'
 
 const { openCreateModal } = useGantt()
-const { isDark, toggleDark } = useTheme()
+const { isDark, toggleDark } = useTheme() // [CORREÇÃO] Nome correto da função
 
 const STORAGE_KEY_TUTORIAL = 'gantt-ficator-tutorial-seen'
-const currentTab = ref<'dashboard' | 'gantt' | 'config' | 'tutorial'>('dashboard')
+const currentTab = ref<'dashboard' | 'gantt' | 'config' | 'squads' | 'tutorial'>('dashboard')
 
 onMounted(() => {
 	const hasSeenTutorial = localStorage.getItem(STORAGE_KEY_TUTORIAL)
@@ -61,6 +62,14 @@ const completeTutorial = () => {
 							<span class="text-lg">📅</span> <span class="hidden sm:inline">Cronograma</span>
 						</button>
 						<button
+							@click="currentTab = 'squads'"
+							class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap"
+							:class="currentTab === 'squads' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
+							title="Squads"
+						>
+							<span class="text-lg">👥</span> <span class="hidden sm:inline">Squads</span>
+						</button>
+						<button
 							@click="currentTab = 'config'"
 							class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap"
 							:class="currentTab === 'config' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
@@ -104,6 +113,10 @@ const completeTutorial = () => {
 
 				<div v-else-if="currentTab === 'gantt'" key="gantt">
 					<GanttChart />
+				</div>
+
+				<div v-else-if="currentTab === 'squads'" key="squads" class="max-w-6xl mx-auto animate-fade-in">
+					<SquadManagement />
 				</div>
 
 				<div v-else-if="currentTab === 'config'" key="config" class="max-w-6xl mx-auto space-y-8 animate-fade-in">
