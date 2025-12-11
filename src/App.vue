@@ -5,24 +5,41 @@ import ProjectConfig from '@/components/ProjectConfig.vue'
 import ProjectActions from '@/components/ProjectActions.vue'
 import GanttChart from '@/components/GanttChart.vue'
 import DashboardView from '@/components/DashboardView.vue'
-import SquadManagement from '@/components/SquadManagement.vue' // [NOVO] Importação
+import SquadManagement from '@/components/SquadManagement.vue'
 import TutorialView from '@/components/TutorialView.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 import { useGantt } from '@/composables/useGantt'
 import { useTheme } from '@/composables/useTheme'
 
 const { openCreateModal } = useGantt()
-const { isDark, toggleDark } = useTheme() // [CORREÇÃO] Nome correto da função
+const { isDark, toggleDark } = useTheme()
 
 const STORAGE_KEY_TUTORIAL = 'gantt-ficator-tutorial-seen'
 const currentTab = ref<'dashboard' | 'gantt' | 'config' | 'squads' | 'tutorial'>('dashboard')
+
+const deferredPrompt = ref<any>(null)
 
 onMounted(() => {
 	const hasSeenTutorial = localStorage.getItem(STORAGE_KEY_TUTORIAL)
 	if (!hasSeenTutorial) {
 		currentTab.value = 'tutorial'
 	}
+
+	window.addEventListener('beforeinstallprompt', (e) => {
+		e.preventDefault()
+		deferredPrompt.value = e
+	})
 })
+
+const installPwa = async () => {
+	if (deferredPrompt.value) {
+		deferredPrompt.value.prompt()
+		const { outcome } = await deferredPrompt.value.userChoice
+		if (outcome === 'accepted') {
+			deferredPrompt.value = null
+		}
+	}
+}
 
 const completeTutorial = () => {
 	localStorage.setItem(STORAGE_KEY_TUTORIAL, 'true')
@@ -89,6 +106,17 @@ const completeTutorial = () => {
 				</div>
 
 				<div class="flex items-center gap-3 w-full md:w-auto justify-end">
+                    <button 
+                        v-if="deferredPrompt"
+                        @click="installPwa"
+                        class="p-2 rounded-lg bg-slate-800 dark:bg-slate-700 text-emerald-400 hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors border border-slate-700 animate-pulse"
+                        title="Instalar Aplicativo"
+                    >
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                    </button>
+
 					<button @click="toggleDark" class="p-2 rounded-lg bg-slate-800 dark:bg-slate-700 text-yellow-400 dark:text-slate-200 hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors border border-slate-700">
 						<svg v-if="isDark" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
