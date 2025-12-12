@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useGantt, type Squad } from '@/composables/useGantt'
+import { useGantt } from '@/composables/useGantt'
+import type { Squad, TeamMember } from '@/types/gantt'
 
-const { config, addMember, removeMember, addSquad, updateSquad, removeSquad, linkMemberToSquad, unlinkMemberFromSquad, updateMember } = useGantt()
+const { config, addMember, removeMember, updateMember, addSquad, updateSquad, removeSquad, linkMemberToSquad, unlinkMemberFromSquad } = useGantt()
 
 const squadNameInput = ref('')
 const squadColorInput = ref('#3b82f6')
@@ -13,7 +14,6 @@ const memberNameInput = ref('')
 const memberSectorInput = ref('')
 const memberCapacityInput = ref(8)
 const selectedMemberIdToAdd = ref('')
-
 const editingMemberIndex = ref<number | null>(null)
 
 const handleSaveSquad = () => {
@@ -37,10 +37,8 @@ const startEditSquad = (squad: Squad) => {
 
 const selectSquad = (id: string) => {
 	selectedSquadId.value = selectedSquadId.value === id ? null : id
-	memberNameInput.value = ''
-	memberSectorInput.value = ''
+	selectedMemberIdToAdd.value = ''
 	memberCapacityInput.value = 8
-	editingMemberIndex.value = null
 }
 
 const removeSquadHandler = (id: string) => {
@@ -65,7 +63,7 @@ const handleSaveNewMember = () => {
 	}
 }
 
-const startEditMemberGlobal = (member: any) => {
+const startEditMemberGlobal = (member: TeamMember) => {
 	const idx = config.value.teamMembers.findIndex(m => m.name === member.name)
 	if (idx !== -1) {
 		editingMemberIndex.value = idx
@@ -74,7 +72,7 @@ const startEditMemberGlobal = (member: any) => {
 	}
 }
 
-const deleteMemberGlobal = (member: any) => {
+const deleteMemberGlobal = (member: TeamMember) => {
 	const idx = config.value.teamMembers.findIndex(m => m.name === member.name)
 	if (idx !== -1 && confirm(`Excluir ${member.name} permanentemente?`)) {
 		removeMember(idx)
@@ -109,7 +107,7 @@ const handleLinkMember = () => {
 	}
 }
 
-const handleUnlinkMember = (member: any) => {
+const handleUnlinkMember = (member: TeamMember) => {
 	const idx = config.value.teamMembers.findIndex(m => m.name === member.name)
 	if (idx !== -1 && selectedSquadId.value) {
 		unlinkMemberFromSquad(idx, selectedSquadId.value)
