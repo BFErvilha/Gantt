@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick, onUnmounted } from 'vue'
-import { useGantt, type Task } from '@/composables/useGantt'
+import { useGantt } from '@/composables/useGantt'
+import type { Task } from '@/types/gantt'
 import { format, addDays, startOfWeek, endOfWeek, differenceInCalendarDays, isWeekend } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
@@ -168,7 +169,6 @@ const groupedTasks = computed(() => {
 			if (task.sprintId) {
 				const sprint = config.value.sprints.find(s => s.id === task.sprintId)
 				if (sprint) {
-					// [NOVO] Diferencia sprints de nomes iguais se estiver vendo tudo
 					if (!filterSquad.value && sprint.squadId) {
 						const squad = config.value.squads.find(s => s.id === sprint.squadId)
 						key = squad ? `${squad.name} : ${sprint.name}` : sprint.name
@@ -278,6 +278,7 @@ const getInitials = (name: string) =>
 				.join('')
 				.toUpperCase()
 		: '?'
+
 const isOverloaded = (task: Task) => {
 	if (task.isMilestone) return false
 	if (!task.effort || !task.duration || task.isCompleted) return false
@@ -285,6 +286,7 @@ const isOverloaded = (task: Task) => {
 	const capacity = member ? member.capacity : 8
 	return task.effort > task.duration * capacity
 }
+
 const clearFilters = () => {
 	filterSearch.value = ''
 	filterResponsible.value = ''

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { useToast } from '@/composables/useToast'
+import { useToast, type ToastType } from '@/composables/useToast'
 
 const { notifications, remove } = useToast()
 
-const getIcon = (type: string) => {
+const getIcon = (type: ToastType) => {
 	switch (type) {
 		case 'success':
 			return '✅'
@@ -16,7 +16,7 @@ const getIcon = (type: string) => {
 	}
 }
 
-const getStyles = (type: string) => {
+const getStyles = (type: ToastType) => {
 	switch (type) {
 		case 'success':
 			return 'border-green-500 bg-white dark:bg-slate-800'
