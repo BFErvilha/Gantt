@@ -1,48 +1,18 @@
 import { computed } from 'vue'
 import { addDays, format, startOfDay, isWeekend, differenceInCalendarDays, parseISO, isValid, isAfter, isBefore } from 'date-fns'
 import { useGanttState } from './useGanttState'
-import type { Sprint, Task } from '../types/gantt'
+import type { Sprint } from '../types/gantt'
 
 export function useGanttCalculations() {
 	const { config, tasks } = useGanttState()
 
-	const findSprintById = (sprintId: string): Sprint | undefined => {
-		for (const squad of config.value.squads) {
-			const sprint = squad.sprints?.find(s => s.id === sprintId)
-			if (sprint) return sprint
-		}
-		return undefined
-	}
-
-	const getTaskSquad = (task: Partial<Task>) => {
-		if ((task as any).squadId) {
-			return config.value.squads.find(s => s.id === (task as any).squadId)
-		}
-		if (task.sprintId) {
-			const sprint = findSprintById(task.sprintId)
-			if (sprint && sprint.squadId) {
-				return config.value.squads.find(s => s.id === sprint.squadId)
-			}
-		}
-		return null
-	}
-
-	const isNonWorkingDay = (date: Date, responsibleName?: string, contextSquad?: any) => {
+	const isNonWorkingDay = (date: Date, responsibleName?: string) => {
 		if (!isValid(date)) return false
 		const dateString = format(date, 'yyyy-MM-dd')
 
-		const activeSquad = contextSquad || {}
-		const holidays = activeSquad.holidays || config.value.holidays || []
-		if (holidays.includes(dateString)) return true
+		if (config.value.holidays.includes(dateString)) return true
 
-		let shouldSkipWeekend = true
-		if (activeSquad.skipWeekends !== undefined) {
-			shouldSkipWeekend = activeSquad.skipWeekends
-		} else if (config.value.skipWeekends !== undefined) {
-			shouldSkipWeekend = config.value.skipWeekends
-		}
-
-		if (shouldSkipWeekend && isWeekend(date)) return true
+		if (config.value.skipWeekends && isWeekend(date)) return true
 
 		if (responsibleName) {
 			const member = config.value.teamMembers.find(m => m.name === responsibleName)
@@ -51,57 +21,40 @@ export function useGanttCalculations() {
 		return false
 	}
 
-	const getNextValidStartDate = (date: Date, responsibleName?: string, contextSquad?: any) => {
+	const calculateEndDate = (start: Date, duration: number, responsibleName?: string) => {
+		if (!isValid(start)) return new Date()
+		if (duration === 0) return start
+
+		let daysAdded = 0
+		let current = start
+		const targetDays = Math.max(0, duration - 1)
+		let safeLoop = 0
+
+		while (daysAdded < targetDays && safeLoop < 1000) {
+			current = addDays(current, 1)
+			if (!isNonWorkingDay(current, responsibleName)) daysAdded++
+			safeLoop++
+		}
+		return current
+	}
+
+	const getNextValidStartDate = (date: Date, responsibleName?: string) => {
 		if (!isValid(date)) return new Date()
 		let current = date
 		let safeLoop = 0
-		while (isNonWorkingDay(current, responsibleName, contextSquad) && safeLoop < 365) {
+		while (isNonWorkingDay(current, responsibleName) && safeLoop < 365) {
 			current = addDays(current, 1)
 			safeLoop++
 		}
 		return current
 	}
 
-	const addWorkingDays = (startDate: Date, daysToAdd: number, responsibleName?: string, contextSquad?: any) => {
-		let current = startDate
-		let daysAdded = 0
-		let safeLoop = 0
-
-		if (daysToAdd === 0) {
-			return getNextValidStartDate(current, responsibleName, contextSquad)
+	const findSprintById = (sprintId: string): Sprint | undefined => {
+		for (const squad of config.value.squads) {
+			const sprint = squad.sprints?.find(s => s.id === sprintId)
+			if (sprint) return sprint
 		}
-
-		while (daysAdded < daysToAdd && safeLoop < 1000) {
-			current = addDays(current, 1)
-			if (!isNonWorkingDay(current, responsibleName, contextSquad)) {
-				daysAdded++
-			}
-			safeLoop++
-		}
-
-		return getNextValidStartDate(current, responsibleName, contextSquad)
-	}
-
-	const calculateEndDate = (start: Date, duration: number, responsibleName?: string, contextSquad?: any) => {
-		if (!isValid(start)) return new Date()
-		if (duration <= 0) return start
-
-		let daysCounted = 1
-		let current = start
-		let safeLoop = 0
-
-		if (isNonWorkingDay(current, responsibleName, contextSquad)) {
-			current = getNextValidStartDate(current, responsibleName, contextSquad)
-		}
-
-		while (daysCounted < duration && safeLoop < 1000) {
-			current = addDays(current, 1)
-			if (!isNonWorkingDay(current, responsibleName, contextSquad)) {
-				daysCounted++
-			}
-			safeLoop++
-		}
-		return current
+		return undefined
 	}
 
 	const computedTasks = computed(() => {
@@ -112,48 +65,38 @@ export function useGanttCalculations() {
 
 		let hasChanges = true
 		let iterations = 0
-		const maxIterations = taskQueue.length * 4
+		const maxIterations = taskQueue.length * 2
 
 		while (hasChanges && iterations < maxIterations) {
 			hasChanges = false
 			iterations++
-
 			for (const task of taskQueue) {
-				const contextSquad = getTaskSquad(task)
 				let start = projectStart
 
 				if (task.manualStartDate) {
 					const manualDate = parseISO(task.manualStartDate)
-					if (isValid(manualDate)) {
-						start = getNextValidStartDate(manualDate, task.responsible, contextSquad)
-					}
+					if (isValid(manualDate)) start = getNextValidStartDate(manualDate, task.responsible)
 				} else if (task.dependencyId) {
 					const depData = tempDates.get(task.dependencyId)
 					if (depData) {
-						let gapDays = 1
-						const depType = (depData.type || '').toLowerCase()
-						const currentType = (task.type || '').toLowerCase()
-
-						if (depType === 'backend' && currentType === 'frontend') {
-							gapDays = 3
-						}
-						start = addWorkingDays(depData.end, gapDays, task.responsible, contextSquad)
+						let gapDays = depData.type === 'backend' && task.type === 'frontend' ? 3 : 1
+						start = getNextValidStartDate(addDays(depData.end, gapDays), task.responsible)
 					}
 				} else if (task.sprintId) {
 					const sprint = findSprintById(task.sprintId)
 					if (sprint && isValid(parseISO(sprint.startDate))) {
-						start = getNextValidStartDate(parseISO(sprint.startDate), task.responsible, contextSquad)
+						start = getNextValidStartDate(parseISO(sprint.startDate), task.responsible)
 					} else {
-						start = getNextValidStartDate(projectStart, task.responsible, contextSquad)
+						start = getNextValidStartDate(projectStart, task.responsible)
 					}
 				} else {
-					start = getNextValidStartDate(projectStart, task.responsible, contextSquad)
+					start = getNextValidStartDate(projectStart, task.responsible)
 				}
 
-				const end = calculateEndDate(start, task.isMilestone ? 0 : task.duration, task.responsible, contextSquad)
+				const end = calculateEndDate(start, task.isMilestone ? 0 : task.duration, task.responsible)
 				const currentData = tempDates.get(task.id)
 
-				if (!currentData || currentData.start.getTime() !== start.getTime() || currentData.end.getTime() !== end.getTime()) {
+				if (!currentData || currentData.start.getTime() !== start.getTime()) {
 					tempDates.set(task.id, { start, end, type: task.type })
 					hasChanges = true
 				}
@@ -267,10 +210,7 @@ export function useGanttCalculations() {
 			}
 
 			if (task.startDate && task.endDate) {
-				const contextSquad = getTaskSquad(task)
-				const activeHolidays = contextSquad ? contextSquad.holidays : config.value.holidays
-
-				const hasConflict = activeHolidays.some(h => {
+				const hasConflict = config.value.holidays.some(h => {
 					const d = startOfDay(parseISO(h))
 					return task.startDate! <= d && task.endDate! >= d
 				})
