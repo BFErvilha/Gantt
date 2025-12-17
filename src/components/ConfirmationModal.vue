@@ -19,11 +19,9 @@ const emit = defineEmits(['confirm', 'cancel'])
 					</svg>
 				</button>
 			</div>
-
 			<div class="p-6">
 				<p class="text-slate-600 dark:text-slate-300 text-sm">{{ message }}</p>
 			</div>
-
 			<div class="p-4 bg-slate-50 dark:bg-slate-900/50 flex justify-end gap-3">
 				<button @click="emit('cancel')" class="px-4 py-2 rounded text-slate-600 dark:text-slate-300 text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Cancelar</button>
 				<button @click="emit('confirm')" class="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm">Confirmar</button>

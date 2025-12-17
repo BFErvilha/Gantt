@@ -9,7 +9,7 @@ const steps = [
 	{
 		title: 'Bem-vindo ao Gantt-ficator',
 		icon: '👋',
-		content: 'Sua ferramenta completa para planejamento ágil e visual. O sistema foi atualizado para suportar múltiplas Squads e Otimização Inteligente.',
+		content: 'Sua ferramenta completa para planejamento ágil e visual. O sistema foi atualizado para suportar múltiplas Squads e Otimização Inteligente. Vamos ver o que mudou!',
 		points: ['Gestão por Squads.', 'Planejamento de Sprints.', 'Sugestões de Otimização via IA.'],
 	},
 	{

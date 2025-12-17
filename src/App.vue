@@ -1,8 +1,5 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useGantt } from '@/composables/useGantt'
-import { useTheme } from '@/composables/useTheme'
-
 import TaskModal from '@/components/TaskModal.vue'
 import ProjectConfig from '@/components/ProjectConfig.vue'
 import ProjectActions from '@/components/ProjectActions.vue'
@@ -11,20 +8,15 @@ import DashboardView from '@/components/DashboardView.vue'
 import SquadManagement from '@/components/SquadManagement.vue'
 import TutorialView from '@/components/TutorialView.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
+import { useGantt } from '@/composables/useGantt'
+import { useTheme } from '@/composables/useTheme'
 
 const { openCreateModal } = useGantt()
 const { isDark, toggleDark } = useTheme()
 
-const tabs = [
-	{ id: 'dashboard', label: 'Dashboard', icon: '📊' },
-	{ id: 'gantt', label: 'Cronograma', icon: '📅' },
-	{ id: 'squads', label: 'Squads', icon: '👥' },
-	{ id: 'config', label: 'Configurações', icon: '⚙️' },
-	{ id: 'tutorial', label: 'Tutorial', icon: '🎓' },
-] as const
-
 const STORAGE_KEY_TUTORIAL = 'gantt-ficator-tutorial-seen'
-const currentTab = ref<(typeof tabs)[number]['id']>('dashboard')
+const currentTab = ref<'dashboard' | 'gantt' | 'config' | 'squads' | 'tutorial'>('dashboard')
+
 const deferredPrompt = ref<any>(null)
 
 onMounted(() => {
@@ -33,7 +25,7 @@ onMounted(() => {
 		currentTab.value = 'tutorial'
 	}
 
-	window.addEventListener('beforeinstallprompt', e => {
+	window.addEventListener('beforeinstallprompt', (e) => {
 		e.preventDefault()
 		deferredPrompt.value = e
 	})
@@ -59,7 +51,6 @@ const completeTutorial = () => {
 <template>
 	<div class="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300">
 		<ToastContainer />
-
 		<header class="bg-slate-900 dark:bg-slate-950 text-white p-4 shadow-md z-50 sticky top-0 border-b border-slate-800">
 			<div class="max-w-[1600px] mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
 				<div class="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
@@ -72,25 +63,61 @@ const completeTutorial = () => {
 
 					<nav class="flex bg-slate-800 dark:bg-slate-900 rounded-lg p-1 border border-slate-700 overflow-x-auto">
 						<button
-							v-for="tab in tabs"
-							:key="tab.id"
-							@click="currentTab = tab.id"
-							class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap text-slate-400 hover:text-white"
-							:class="{ 'bg-slate-700 dark:bg-slate-800 text-white shadow': currentTab === tab.id }"
-							:title="tab.label"
+							@click="currentTab = 'dashboard'"
+							class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap"
+							:class="currentTab === 'dashboard' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
+							title="Dashboard"
 						>
-							<span class="text-lg">{{ tab.icon }}</span>
-							<span class="hidden sm:inline">{{ tab.label }}</span>
+							<span class="text-lg">📊</span> <span class="hidden sm:inline">Dashboard</span>
+						</button>
+						<button
+							@click="currentTab = 'gantt'"
+							class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap"
+							:class="currentTab === 'gantt' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
+							title="Cronograma"
+						>
+							<span class="text-lg">📅</span> <span class="hidden sm:inline">Cronograma</span>
+						</button>
+						<button
+							@click="currentTab = 'squads'"
+							class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap"
+							:class="currentTab === 'squads' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
+							title="Squads"
+						>
+							<span class="text-lg">👥</span> <span class="hidden sm:inline">Squads</span>
+						</button>
+						<button
+							@click="currentTab = 'config'"
+							class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap"
+							:class="currentTab === 'config' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
+							title="Configurações"
+						>
+							<span class="text-lg">⚙️</span> <span class="hidden sm:inline">Configurações</span>
+						</button>
+						<button
+							@click="currentTab = 'tutorial'"
+							class="px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap"
+							:class="currentTab === 'tutorial' ? 'bg-slate-700 dark:bg-slate-800 text-white shadow' : 'text-slate-400 hover:text-white'"
+							title="Tutorial"
+						>
+							<span class="text-lg">🎓</span> <span class="hidden sm:inline">Tutorial</span>
 						</button>
 					</nav>
 				</div>
 
 				<div class="flex items-center gap-3 w-full md:w-auto justify-end">
-					<button v-if="deferredPrompt" @click="installPwa" class="p-2 rounded-lg bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors border border-slate-700 text-emerald-400 animate-pulse" title="Instalar App">
-						<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-					</button>
+                    <button 
+                        v-if="deferredPrompt"
+                        @click="installPwa"
+                        class="p-2 rounded-lg bg-slate-800 dark:bg-slate-700 text-emerald-400 hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors border border-slate-700 animate-pulse"
+                        title="Instalar Aplicativo"
+                    >
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                    </button>
 
-					<button @click="toggleDark" class="p-2 rounded-lg bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors border border-slate-700 text-yellow-400 dark:text-slate-200">
+					<button @click="toggleDark" class="p-2 rounded-lg bg-slate-800 dark:bg-slate-700 text-yellow-400 dark:text-slate-200 hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors border border-slate-700">
 						<svg v-if="isDark" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
 						</svg>
@@ -108,17 +135,29 @@ const completeTutorial = () => {
 
 		<main class="flex-1 w-full max-w-[1600px] mx-auto p-4 lg:p-6">
 			<transition name="fade" mode="out-in">
-				<DashboardView v-if="currentTab === 'dashboard'" />
-				<GanttChart v-else-if="currentTab === 'gantt'" />
-				<SquadManagement v-else-if="currentTab === 'squads'" class="max-w-6xl mx-auto animate-fade-in" />
-				<div v-else-if="currentTab === 'config'" class="max-w-6xl mx-auto space-y-8 animate-fade-in">
+				<div v-if="currentTab === 'dashboard'" key="dashboard">
+					<DashboardView />
+				</div>
+
+				<div v-else-if="currentTab === 'gantt'" key="gantt">
+					<GanttChart />
+				</div>
+
+				<div v-else-if="currentTab === 'squads'" key="squads" class="max-w-6xl mx-auto animate-fade-in">
+					<SquadManagement />
+				</div>
+
+				<div v-else-if="currentTab === 'config'" key="config" class="max-w-6xl mx-auto space-y-8 animate-fade-in">
 					<section>
 						<h2 class="text-xl font-bold text-slate-800 dark:text-slate-200 mb-4 px-1">Gerenciamento de Dados</h2>
 						<ProjectActions />
 					</section>
 					<ProjectConfig />
 				</div>
-				<TutorialView v-else-if="currentTab === 'tutorial'" @complete="completeTutorial" />
+
+				<div v-else-if="currentTab === 'tutorial'" key="tutorial">
+					<TutorialView @complete="completeTutorial" />
+				</div>
 			</transition>
 		</main>
 
@@ -126,7 +165,7 @@ const completeTutorial = () => {
 	</div>
 </template>
 
-<style scoped>
+<style>
 .fade-enter-active,
 .fade-leave-active {
 	transition: opacity 0.2s ease;

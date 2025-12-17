@@ -2,7 +2,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
 import { format } from 'date-fns'
-import type { Task, ProjectConfig } from '../types/gantt'
+import type { Task, ProjectConfig } from './useGantt'
 
 export function useDataPersistence() {
 	const exportToPDF = (tasks: Task[], config: ProjectConfig, risks: string[]) => {

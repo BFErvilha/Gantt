@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { useGantt } from '@/composables/useGantt'
-import type { Task } from '@/types/gantt' // <--- CORREÇÃO AQUI
+import { useGantt, type Task } from '@/composables/useGantt'
 import ConfirmationModal from './ConfirmationModal.vue'
 
-// Extraímos tudo do Facade useGantt
 const { tasks, addTask, editingTask, updateTask, cancelEditing, removeTask, toggleTaskCompletion, config, isTaskModalOpen, allSprints } = useGantt()
 
 const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
@@ -45,11 +43,10 @@ const flowState = ref({
 const isDeleteModalOpen = ref(false)
 const isCompleteModalOpen = ref(false)
 
-// Monitora a abertura para preencher o formulário
 watch(editingTask, newTask => {
 	if (newTask) {
 		isFlowMode.value = false
-		// Tenta inferir a Squad pela Sprint da tarefa
+
 		let squadId = ''
 		if (newTask.sprintId) {
 			const sprint = allSprints.value.find(s => s.id === newTask.sprintId)
@@ -77,8 +74,6 @@ watch(editingTask, newTask => {
 	}
 })
 
-// --- Computed Helpers ---
-
 const availableSprintsSimple = computed(() => {
 	if (!formState.value.squadId) return allSprints.value
 	return allSprints.value.filter(s => s.squadId === formState.value.squadId)
@@ -92,26 +87,32 @@ const availableSprintsFlow = computed(() => {
 const flowSprintSquad = computed(() => {
 	if (!flowState.value.sprintId) return null
 	const sprint = allSprints.value.find(s => s.id === flowState.value.sprintId)
-	return sprint?.squadId ? config.value.squads.find(s => s.id === sprint.squadId) : null
+	if (sprint && sprint.squadId) {
+		return config.value.squads.find(s => s.id === sprint.squadId)
+	}
+	return null
 })
 
 const selectedSprintSquad = computed(() => {
 	if (!formState.value.sprintId) return null
 	const sprint = allSprints.value.find(s => s.id === formState.value.sprintId)
-	return sprint?.squadId ? config.value.squads.find(s => s.id === sprint.squadId) : null
+	if (sprint && sprint.squadId) {
+		return config.value.squads.find(s => s.id === sprint.squadId)
+	}
+	return null
 })
 
-const currentFormId = computed(() => (!editingTask.value && isFlowMode.value ? 'flow-form' : 'simple-form'))
+const currentFormId = computed(() => {
+	if (!editingTask.value && isFlowMode.value) return 'flow-form'
+	return 'simple-form'
+})
 
-// --- Watches de Lógica de UI ---
-
-// Auto-selecionar Squad ao escolher Sprint
 watch(
 	() => formState.value.sprintId,
 	newSprintId => {
 		if (newSprintId) {
 			const sprint = allSprints.value.find(s => s.id === newSprintId)
-			if (sprint?.squadId) formState.value.squadId = sprint.squadId
+			if (sprint && sprint.squadId) formState.value.squadId = sprint.squadId
 		}
 	},
 )
@@ -120,16 +121,15 @@ watch(
 	newSprintId => {
 		if (newSprintId) {
 			const sprint = allSprints.value.find(s => s.id === newSprintId)
-			if (sprint?.squadId) flowState.value.squadId = sprint.squadId
+			if (sprint && sprint.squadId) flowState.value.squadId = sprint.squadId
 		}
 	},
 )
 
-// --- Lógica de Filtro de Membros ---
-
 const getMembersBySector = (sectorType: string, squadId?: string) => {
 	return config.value.teamMembers.filter(member => {
 		if (squadId && !member.squadIds.includes(squadId)) return false
+
 		const s = (member.sector || '').toLowerCase()
 		if (s.includes('fullstack') || s.includes('full stack')) return true
 		if (sectorType === 'backend' && (s.includes('back') || s.includes('devops'))) return true
@@ -145,11 +145,12 @@ const filteredMembersSimple = computed(() => {
 	if (formState.value.squadId) {
 		members = members.filter(m => m.squadIds.includes(formState.value.squadId))
 	}
-	if (!formState.value.type || formState.value.type === 'other') return members
+	if (!formState.value.type || formState.value.type === 'other') {
+		return members
+	}
 	return getMembersBySector(formState.value.type, formState.value.squadId)
 })
 
-// Limpa responsável se trocar o tipo e ele não for compatível
 watch(
 	() => formState.value.type,
 	() => {
@@ -161,7 +162,6 @@ watch(
 	},
 )
 
-// Cálculo de Capacidade
 const getCapacity = (respName: string) => {
 	if (!respName) return 8
 	const member = config.value.teamMembers.find(m => m.name === respName)
@@ -184,8 +184,6 @@ const capacityAlertSimple = computed(() => {
 	return null
 })
 
-// --- Actions ---
-
 const resetForm = () => {
 	formState.value = { ...defaultFormState, color: colors[Math.floor(Math.random() * colors.length)] }
 	flowState.value = {
@@ -207,27 +205,30 @@ const resetForm = () => {
 const submitSimple = () => {
 	if (!formState.value.name) return
 
-	const taskData: Partial<Task> = {
-		name: formState.value.name,
-		usId: formState.value.usId,
-		customId: formState.value.customId,
-		duration: formState.value.isMilestone ? 0 : formState.value.duration,
-		dependencyId: formState.value.dependencyId || null,
-		color: formState.value.color,
-		type: formState.value.type,
-		responsible: formState.value.responsible,
-		effort: formState.value.effort,
-		sprintId: formState.value.sprintId || undefined,
-		isMilestone: formState.value.isMilestone,
-		usType: formState.value.usType,
-		classification: formState.value.classification,
-		isNotPlanned: !formState.value.sprintId,
-	}
-
 	if (editingTask.value) {
-		updateTask({ ...editingTask.value, ...taskData })
+		updateTask({
+			...editingTask.value,
+			...formState.value,
+			dependencyId: formState.value.dependencyId || null,
+			sprintId: formState.value.sprintId || undefined,
+			isNotPlanned: !formState.value.sprintId,
+		})
 	} else {
-		addTask(taskData)
+		addTask({
+			name: formState.value.name,
+			usId: formState.value.usId,
+			customId: formState.value.customId,
+			duration: formState.value.isMilestone ? 0 : formState.value.duration,
+			dependencyId: formState.value.dependencyId || null,
+			color: formState.value.color,
+			type: formState.value.type,
+			responsible: formState.value.responsible,
+			effort: formState.value.effort,
+			sprintId: formState.value.sprintId || undefined,
+			isMilestone: formState.value.isMilestone,
+			usType: formState.value.usType,
+			classification: formState.value.classification,
+		})
 	}
 	cancelEditing()
 }
@@ -245,14 +246,13 @@ const submitFlow = () => {
 		isMilestone: false,
 		usType: flowState.value.usType,
 		classification: flowState.value.classification,
-		isNotPlanned: !flowState.value.sprintId,
 	}
 
-	// Cria Backend
 	if (flowState.value.backend.enabled) {
 		const effort = flowState.value.backend.effort
 		const cap = getCapacity(flowState.value.backend.responsible)
 		const taskName = flowState.value.isFullstack ? `${flowState.value.featureName} (Fullstack)` : `${flowState.value.featureName} (Back)`
+
 		addTask({
 			id: backId,
 			name: taskName,
@@ -266,11 +266,11 @@ const submitFlow = () => {
 		})
 	}
 
-	// Cria Frontend
 	if (!flowState.value.isFullstack && flowState.value.frontend.enabled) {
 		const effort = flowState.value.frontend.effort
 		const cap = getCapacity(flowState.value.frontend.responsible)
 		const depId = flowState.value.backend.enabled ? backId : null
+
 		addTask({
 			id: frontId,
 			name: `${flowState.value.featureName} (Front)`,
@@ -284,13 +284,15 @@ const submitFlow = () => {
 		})
 	}
 
-	// Cria QA
 	if (flowState.value.qa.enabled) {
 		const effort = flowState.value.qa.effort
 		const cap = getCapacity(flowState.value.qa.responsible)
 		let depId = null
-		if (!flowState.value.isFullstack && flowState.value.frontend.enabled) depId = frontId
-		else if (flowState.value.backend.enabled) depId = backId
+		if (!flowState.value.isFullstack && flowState.value.frontend.enabled) {
+			depId = frontId
+		} else if (flowState.value.backend.enabled) {
+			depId = backId
+		}
 
 		addTask({
 			id: qaId,
@@ -304,6 +306,7 @@ const submitFlow = () => {
 			...commonData,
 		})
 	}
+
 	cancelEditing()
 }
 
@@ -311,6 +314,7 @@ const handleCancel = () => {
 	cancelEditing()
 	resetForm()
 }
+
 const requestDelete = () => {
 	if (editingTask.value) isDeleteModalOpen.value = true
 }
@@ -320,6 +324,7 @@ const confirmDelete = () => {
 		isDeleteModalOpen.value = false
 	}
 }
+
 const requestCompletion = () => {
 	if (editingTask.value) isCompleteModalOpen.value = true
 }
@@ -346,6 +351,7 @@ const confirmCompletion = () => {
 						<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
 					</button>
 				</div>
+
 				<div v-if="!editingTask" class="px-6 pt-4 bg-white dark:bg-slate-900 flex-shrink-0">
 					<div class="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
 						<button @click="isFlowMode = false" class="flex-1 py-2 text-sm font-bold rounded-md transition-all shadow-sm" :class="!isFlowMode ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'">
