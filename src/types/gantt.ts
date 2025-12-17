@@ -44,7 +44,6 @@ export interface Task {
 	formattedStartDate?: string
 	formattedEndDate?: string
 	sprintId?: string
-	squadId?: string
 	isNotPlanned?: boolean
 	isCompleted?: boolean
 	completedDate?: string

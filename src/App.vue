@@ -4,12 +4,12 @@ import { useGantt } from '@/composables/useGantt'
 import { useTheme } from '@/composables/useTheme'
 
 import TaskModal from '@/components/TaskModal.vue'
-import ProjectConfig from '@/pages/ProjectConfig.vue'
+import ProjectConfig from '@/components/ProjectConfig.vue'
 import ProjectActions from '@/components/ProjectActions.vue'
-import GanttChart from '@/pages/GanttChart.vue'
-import DashboardView from '@/pages/DashboardView.vue'
-import SquadManagement from '@/pages/SquadManagement.vue'
-import TutorialView from '@/pages/TutorialView.vue'
+import GanttChart from '@/components/GanttChart.vue'
+import DashboardView from '@/components/DashboardView.vue'
+import SquadManagement from '@/components/SquadManagement.vue'
+import TutorialView from '@/components/TutorialView.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 
 const { openCreateModal } = useGantt()
