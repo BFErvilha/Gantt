@@ -2,7 +2,6 @@
 import { ref, computed, watch } from 'vue'
 import { useGantt } from '@/composables/useGantt'
 import { format, parseISO } from 'date-fns'
-import type { Sprint, TeamMember } from '@/types/gantt'
 
 const { config, addHolidayToSquad, removeHolidayFromSquad, addHoliday, removeHoliday, addSprintToSquad, updateSprintInSquad, removeSprintFromSquad, getSquadStats, projectCapacityStats, automaticRisks, updateMember, addMemberDayOff, removeMemberDayOff } = useGantt()
 
@@ -68,7 +67,7 @@ const handleSaveSprint = () => {
 	}
 }
 
-const startEditSprint = (sprint: Sprint) => {
+const startEditSprint = (sprint: any) => {
 	sprintName.value = sprint.name
 	sprintStart.value = sprint.startDate
 	sprintEnd.value = sprint.endDate
@@ -93,7 +92,7 @@ const contextMembers = computed(() => {
 	return config.value.teamMembers
 })
 
-const startEditMemberContext = (memberLocal: TeamMember) => {
+const startEditMemberContext = (memberLocal: any) => {
 	const index = config.value.teamMembers.findIndex(m => m.name === memberLocal.name)
 	if (index !== -1) {
 		editingMemberIndex.value = index
@@ -128,6 +127,7 @@ const removeDayOffContext = (dayOff: string) => {
 }
 
 const formatDateBr = (isoDate: string) => format(parseISO(isoDate), 'dd/MM/yyyy')
+// const formatDateObj = (date: Date) => format(date, 'dd/MM/yyyy')
 </script>
 
 <template>

@@ -1,28 +1,21 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useGantt } from '@/composables/useGantt'
-import { differenceInCalendarDays, parseISO, isAfter, startOfDay, format, isValid } from 'date-fns'
+import { differenceInCalendarDays, parseISO, isAfter, startOfDay, format } from 'date-fns'
 
 const { tasks, config, automaticRisks, projectCapacityStats, computedTasks } = useGantt()
 
 const totalTasks = computed(() => tasks.value.length)
 
 const timeProgress = computed(() => {
-	if (!config.value.projectStartDate || !config.value.deadline) return 0
-
-	const start = parseISO(config.value.projectStartDate)
-	const end = parseISO(config.value.deadline)
-
-	if (!isValid(start) || !isValid(end)) return 0
-
+	const start = new Date(config.value.projectStartDate)
+	const end = new Date(config.value.deadline)
 	const today = new Date()
 	const totalDuration = differenceInCalendarDays(end, start)
 	const elapsed = differenceInCalendarDays(today, start)
 
-	if (totalDuration <= 0) return 0
 	if (elapsed < 0) return 0
 	if (elapsed > totalDuration) return 100
-
 	return Math.round((elapsed / totalDuration) * 100)
 })
 
@@ -36,9 +29,7 @@ const completedStats = computed(() => {
 	completed.forEach(t => {
 		if (!t.completedDate || !t.endDate) return
 		const doneDate = startOfDay(parseISO(t.completedDate))
-		const plannedEnd = startOfDay(t.endDate)
-
-		if (isValid(doneDate) && isValid(plannedEnd) && isAfter(doneDate, plannedEnd)) {
+		if (isAfter(doneDate, t.endDate)) {
 			late++
 		} else {
 			onTime++
@@ -61,7 +52,6 @@ const teamWorkload = computed(() => {
 
 		const stat = projectCapacityStats.value.memberStats.find(s => s.name === member.name)
 		const totalCapacity = stat ? stat.totalCapacity : 0
-
 		const usagePercentage = totalCapacity > 0 ? Math.round((assignedHours / totalCapacity) * 100) : 0
 
 		return {
@@ -78,8 +68,11 @@ const teamWorkload = computed(() => {
 const tasksByType = computed(() => {
 	const types = { frontend: 0, backend: 0, qualidade: 0, other: 0 }
 	tasks.value.forEach(t => {
-		const typeKey = t.type in types ? (t.type as keyof typeof types) : 'other'
-		types[typeKey]++
+		if (t.type in types) {
+			types[t.type as keyof typeof types]++
+		} else {
+			types.other++
+		}
 	})
 	return [
 		{ label: 'Front-end', value: types.frontend, color: 'bg-blue-500' },
@@ -93,13 +86,12 @@ const sectorCapacityStats = computed(() => {
 	const stats: Record<string, { totalCapacity: number; assignedEffort: number; memberCount: number }> = {}
 
 	teamWorkload.value.forEach(member => {
-		const sectorName = member.sector || 'Outro'
-		if (!stats[sectorName]) {
-			stats[sectorName] = { totalCapacity: 0, assignedEffort: 0, memberCount: 0 }
+		if (!stats[member.sector]) {
+			stats[member.sector] = { totalCapacity: 0, assignedEffort: 0, memberCount: 0 }
 		}
-		stats[sectorName].totalCapacity += member.capacity
-		stats[sectorName].assignedEffort += member.assigned
-		stats[sectorName].memberCount += 1
+		stats[member.sector].totalCapacity += member.capacity
+		stats[member.sector].assignedEffort += member.assigned
+		stats[member.sector].memberCount += 1
 	})
 
 	return Object.entries(stats).map(([name, data]) => ({
@@ -283,7 +275,6 @@ const parsedRisks = computed(() => {
 				</div>
 			</div>
 		</div>
-
 		<div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 transition-colors h-full">
 			<div class="flex justify-between items-center mb-4">
 				<h3 class="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
@@ -315,7 +306,6 @@ const parsedRisks = computed(() => {
 				<div v-if="baselineStats.count > 5" class="text-center text-xs text-slate-400 italic pt-2">+{{ baselineStats.count - 5 }} outras tarefas atrasadas</div>
 			</div>
 		</div>
-
 		<div v-if="parsedRisks.length > 0" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm animate-fade-in transition-colors">
 			<h3 class="text-slate-700 dark:text-slate-200 font-bold text-base mb-4 flex items-center gap-2">
 				<span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
