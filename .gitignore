@@ -11,7 +11,6 @@ node_modules
 .pnpm-store
 
 # Build de Produção (O Deploy gera isso na nuvem, não suba)
-dist
 dist-ssr
 *.local
 
