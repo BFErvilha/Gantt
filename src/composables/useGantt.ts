@@ -964,6 +964,46 @@ export function useGantt() {
 		return config.value.squads.flatMap(s => s.sprints.map(sp => ({ ...sp, squadId: s.id })))
 	})
 
+	const restoreFullBackup = (newConfig: Partial<ProjectConfig>, newTasks: Partial<Task>[]) => {
+		try {
+			if (newConfig.squads) {
+				config.value.squads = newConfig.squads.map(s => ({
+					...s,
+					sprints: s.sprints || [],
+					holidays: s.holidays || [],
+					skipWeekends: s.skipWeekends ?? true,
+				}))
+			}
+
+			if (newConfig.teamMembers) {
+				config.value.teamMembers = newConfig.teamMembers
+			}
+			if (newTasks) {
+				tasks.value = newTasks.map(t => ({
+					id: t.id || crypto.randomUUID(),
+					name: t.name || 'Sem nome',
+					duration: t.duration || 1,
+					dependencyId: t.dependencyId || null,
+					color: t.color || '#3b82f6',
+					type: t.type || 'other',
+					responsible: t.responsible || '',
+					effort: t.effort || 0,
+					sprintId: t.sprintId,
+					usType: t.usType || 'item',
+					isNotPlanned: !t.sprintId,
+					isCompleted: t.isCompleted || false,
+					isMilestone: t.isMilestone || false,
+					classification: t.classification || 0,
+				})) as Task[]
+			}
+
+			toast.show('Projeto restaurado com sucesso!', 'success')
+		} catch (error) {
+			console.error('Erro ao restaurar backup:', error)
+			toast.show('Falha ao restaurar dados do Excel.', 'error')
+		}
+	}
+
 	return {
 		tasks,
 		config,
@@ -1025,5 +1065,6 @@ export function useGantt() {
 		addSprintToSquad,
 		updateSprintInSquad,
 		removeSprintFromSquad,
+		restoreFullBackup,
 	}
 }

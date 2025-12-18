@@ -5,7 +5,7 @@ import { useGantt } from '@/composables/useGantt'
 import { useToast } from '@/composables/useToast'
 
 const { exportToExcel, exportToPDF, downloadImportTemplate, importFromExcel, clearAllData } = useDataPersistence()
-const { tasks, config, importTasks, saveBaseline } = useGantt()
+const { tasks, config, saveBaseline, restoreFullBackup } = useGantt()
 const toast = useToast()
 
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -18,18 +18,17 @@ const handleFileChange = async (event: Event) => {
 	const target = event.target as HTMLInputElement
 	if (target.files && target.files[0]) {
 		try {
-			const importedTasks = await importFromExcel(target.files[0])
-			if (importedTasks && importedTasks.length > 0) {
-				if (confirm(`Encontradas ${importedTasks.length} tarefas. Deseja substituir as atuais (OK) ou adicionar (Cancelar)?`)) {
-					importTasks(importedTasks)
-				} else {
-					importTasks([...tasks.value, ...importedTasks])
-				}
-				toast.show('Importação concluída com sucesso!', 'success')
+			const importedData = await importFromExcel(target.files[0])
+
+			if (importedData && importedData.tasks.length > 0) {
+				restoreFullBackup(importedData.config, importedData.tasks)
+				toast.show('Projeto e configurações importados com sucesso!', 'success')
+			} else {
+				toast.show('Nenhuma tarefa encontrada no arquivo.', 'error')
 			}
 		} catch (error) {
 			console.error(error)
-			toast.show('Erro ao ler o arquivo Excel. Verifique se segue o modelo.', 'error')
+			toast.show('Erro ao ler o arquivo Excel. Verifique se as abas "Tarefas" e "Squads" existem.', 'error')
 		} finally {
 			target.value = ''
 		}
@@ -37,7 +36,7 @@ const handleFileChange = async (event: Event) => {
 }
 
 const handleClear = () => {
-	if (confirm('Tem certeza? Isso apagará todos os dados locais permanentemente.')) {
+	if (confirm('Tem certeza? Isso apagará todos os dados locais (Tarefas, Squads e Membros) permanentemente.')) {
 		clearAllData()
 		window.location.reload()
 	}
@@ -46,7 +45,7 @@ const handleClear = () => {
 
 <template>
 	<div class="grid grid-cols-2 md:grid-cols-6 gap-4 animate-fade-in mb-8">
-		<div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all group cursor-pointer flex flex-col items-center justify-center gap-2 text-center" @click="exportToExcel(tasks)">
+		<div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all group cursor-pointer flex flex-col items-center justify-center gap-2 text-center" @click="exportToExcel(tasks, config)">
 			<div class="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center text-green-600 dark:text-green-400 group-hover:scale-110 transition-transform">
 				<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -92,19 +91,3 @@ const handleClear = () => {
 		</div>
 	</div>
 </template>
-
-<style scoped>
-.animate-fade-in {
-	animation: fadeIn 0.5s ease-out;
-}
-@keyframes fadeIn {
-	from {
-		opacity: 0;
-		transform: translateY(10px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-</style>

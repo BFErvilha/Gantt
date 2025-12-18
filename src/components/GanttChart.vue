@@ -168,7 +168,6 @@ const groupedTasks = computed(() => {
 			if (task.sprintId) {
 				const sprint = config.value.sprints.find(s => s.id === task.sprintId)
 				if (sprint) {
-					// [NOVO] Diferencia sprints de nomes iguais se estiver vendo tudo
 					if (!filterSquad.value && sprint.squadId) {
 						const squad = config.value.squads.find(s => s.id === sprint.squadId)
 						key = squad ? `${squad.name} : ${sprint.name}` : sprint.name
