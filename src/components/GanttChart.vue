@@ -166,7 +166,7 @@ const groupedTasks = computed(() => {
 			key = task.responsible || 'Sem Responsável'
 		} else if (groupBy.value === 'sprint') {
 			if (task.sprintId) {
-				const sprint = config.value.sprints.find(s => s.id === task.sprintId)
+				const sprint = config.value.squads.flatMap(s => s.sprints).find(s => s.id === task.sprintId)
 				if (sprint) {
 					if (!filterSquad.value && sprint.squadId) {
 						const squad = config.value.squads.find(s => s.id === sprint.squadId)
@@ -297,6 +297,24 @@ const clearFilters = () => {
 	filterType.value = ''
 }
 const hasFilters = computed(() => filterSearch.value || filterResponsible.value || filterType.value)
+
+const tooltipData = ref<{ task: Task | null; x: number; y: number }>({
+	task: null,
+	x: 0,
+	y: 0,
+})
+
+const showTooltip = (e: MouseEvent, task: Task) => {
+	tooltipData.value = {
+		task,
+		x: e.clientX + 15,
+		y: e.clientY + 15,
+	}
+}
+
+const hideTooltip = () => {
+	tooltipData.value.task = null
+}
 </script>
 
 <template>
@@ -543,29 +561,67 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 										'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900': editingTask?.id === task.id,
 										'border-2 border-amber-400': isOverloaded(task),
 										'ring-2 ring-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)] z-20': showCriticalPath && criticalPathIds.includes(task.id),
-										'opacity-40 grayscale': showCriticalPath && !criticalPathIds.includes(task.id) && editingTask?.id !== task.id,
 										'opacity-60': task.isCompleted,
 										'shadow-lg scale-[1.02]': isDragging && draggingTaskId === task.id,
-										'border-2 border-dashed border-slate-300': task.isNotPlanned && !isOverloaded(task),
 										'rotate-45 !w-5 !h-5 !rounded-sm !p-0 justify-center ml-2.5': task.isMilestone,
 									}"
 									@mousedown="e => onTaskMouseDown(e, task)"
+									@mouseenter="e => showTooltip(e, task)"
+									@mouseleave="hideTooltip"
+									@mousemove="e => showTooltip(e, task)"
 									:style="getTaskStyle(task)"
 								>
-									<span v-if="!task.isMilestone" class="truncate font-medium drop-shadow-md flex items-center gap-2" :class="{ 'line-through text-white/80': task.isCompleted }">
-										{{ task.name }}
-										<span v-if="isOverloaded(task)" class="bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-200 rounded-full px-1 text-[9px] font-bold">⚠️</span>
-										<span v-if="task.isCompleted" class="bg-green-500 text-white rounded-full px-1 text-[9px] font-bold">✓</span>
+									<span v-if="!task.isMilestone" class="truncate font-medium drop-shadow-md flex items-center gap-1">
+										<span v-if="task.usId" class="font-bold opacity-80">[{{ task.usId }}]</span>
+										<span class="truncate">{{ task.name }}</span>
+										<span v-if="isOverloaded(task)">⚠️</span>
 									</span>
-									<div v-if="task.responsible && !task.isMilestone" class="absolute right-1 top-0.5 w-5 h-5 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-[9px] font-bold border border-white/40 shadow-sm">
+
+									<div v-if="task.responsible && !task.isMilestone" class="absolute right-1 top-0.5 w-5 h-5 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-[9px] font-bold border border-white/40">
 										{{ getInitials(task.responsible) }}
 									</div>
 								</div>
-
-								<span v-if="task.isMilestone" class="absolute text-xs font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap ml-2 z-20 pointer-events-none" :style="{ left: (parseInt(getTaskStyle(task).left as string) + 25) + 'px' }">
-									{{ task.name }}
-								</span>
 							</div>
+
+							<Teleport to="body">
+								<Transition name="fade">
+									<div
+										v-if="tooltipData.task"
+										class="fixed z-[999] pointer-events-none bg-white dark:bg-slate-800 shadow-2xl rounded-xl border border-slate-200 dark:border-slate-700 p-4 min-w-[220px] backdrop-blur-md bg-opacity-90 dark:bg-opacity-90"
+										:style="{ left: tooltipData.x + 'px', top: tooltipData.y + 'px' }"
+									>
+										<div class="flex items-start justify-between mb-2 gap-4">
+											<span class="text-[10px] font-black uppercase px-2 py-0.5 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 rounded-full">
+												{{ tooltipData.task.usId || 'SEM ID' }}
+											</span>
+											<span class="text-[10px] font-bold text-slate-400">
+												{{ tooltipData.task.type?.toUpperCase() }}
+											</span>
+										</div>
+
+										<h4 class="text-sm font-bold text-slate-800 dark:text-white mb-3 leading-tight">
+											{{ tooltipData.task.name }}
+										</h4>
+
+										<div class="space-y-2 border-t border-slate-100 dark:border-slate-700 pt-2">
+											<div class="flex items-center justify-between text-[11px]">
+												<span class="text-slate-500 dark:text-slate-400">Responsável:</span>
+												<span class="font-bold text-slate-700 dark:text-slate-200">{{ tooltipData.task.responsible || 'Não atribuído' }}</span>
+											</div>
+											<div class="flex items-center justify-between text-[11px]">
+												<span class="text-slate-500 dark:text-slate-400">Esforço:</span>
+												<span class="font-bold text-slate-700 dark:text-slate-200">{{ tooltipData.task.effort || 0 }}h</span>
+											</div>
+											<div class="flex items-center justify-between text-[11px]">
+												<span class="text-slate-500 dark:text-slate-400">Período:</span>
+												<span class="font-bold text-blue-600 dark:text-blue-400">{{ tooltipData.task.formattedStartDate }} - {{ tooltipData.task.formattedEndDate }}</span>
+											</div>
+										</div>
+
+										<div v-if="isOverloaded(tooltipData.task)" class="mt-3 p-2 bg-amber-50 dark:bg-amber-900/30 rounded-lg border border-amber-200 dark:border-amber-800 text-[10px] font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1">⚠️ Sobrecarga de Horas</div>
+									</div>
+								</Transition>
+							</Teleport>
 						</div>
 					</div>
 				</div>

@@ -44,11 +44,11 @@ export function useDataPersistence() {
 
 		autoTable(doc, {
 			startY: currentY,
-			head: [['Tarefa', 'Tipo', 'Resp.', 'Duração', 'Início', 'Fim']],
-			body: tasks.map(t => [t.name, t.type.toUpperCase(), t.responsible || '-', `${t.duration}d`, t.formattedStartDate || '', t.formattedEndDate || '']),
+			head: [['ID', 'Tarefa', 'Tipo', 'Resp.', 'Início', 'Fim']],
+			body: tasks.map(t => [t.usId || '-', t.usId ? `[${t.usId}] ${t.name}` : t.name, t.type.toUpperCase(), t.responsible || '-', t.formattedStartDate || '', t.formattedEndDate || '']),
 			theme: 'grid',
 			headStyles: { fillColor: [59, 130, 246] },
-			styles: { fontSize: 8 },
+			styles: { fontSize: 7, cellPadding: 2 },
 			alternateRowStyles: { fillColor: [249, 250, 251] },
 		})
 
@@ -60,15 +60,16 @@ export function useDataPersistence() {
 
 		const wsTasks = XLSX.utils.json_to_sheet(
 			tasks.map(t => ({
-				ID: t.id,
-				Nome: t.name,
+				Tarefa: t.usId ? `[${t.usId}] ${t.name}` : t.name,
+				US_ID: t.usId || '-',
+				ID_Tarefa: t.customId || t.id,
 				Tipo: t.type,
 				Responsavel: t.responsible,
-				Esforco: t.effort,
-				Duracao: t.duration,
+				Esforco_Horas: t.effort,
+				Duracao_Dias: t.duration,
 				Inicio: t.formattedStartDate,
+				Fim: t.formattedEndDate,
 				Dependencia: t.dependencyId,
-				Sprint_ID: t.sprintId,
 				Meta: t.usType === 'goal' ? 'Sim' : 'Não',
 			})),
 		)
@@ -107,17 +108,25 @@ export function useDataPersistence() {
 					const workbook = XLSX.read(data, { type: 'array' })
 
 					const sheetTasks = workbook.Sheets['Tarefas']
-					const tasksData = XLSX.utils.sheet_to_json(sheetTasks).map((row: any) => ({
-						id: row.ID || crypto.randomUUID(),
-						name: row.Nome,
-						duration: Number(row.Duracao) || 1,
-						type: row.Tipo || 'other',
-						responsible: row.Responsavel,
-						effort: Number(row.Esforco) || 0,
-						dependencyId: row.Dependencia || null,
-						sprintId: row.Sprint_ID,
-						usType: (row.Meta === 'Sim' ? 'goal' : 'item') as 'goal' | 'item',
-					}))
+					const tasksData = XLSX.utils.sheet_to_json(sheetTasks).map((row: any) => {
+						let cleanName = row.Tarefa || row.Nome
+						if (cleanName && cleanName.startsWith('[')) {
+							cleanName = cleanName.split(']').slice(1).join(']').trim()
+						}
+
+						return {
+							id: row.ID || row.ID_Tarefa || crypto.randomUUID(),
+							usId: row.US_ID !== '-' ? row.US_ID : '',
+							name: cleanName,
+							duration: Number(row.Duracao_Dias || row.Duracao) || 1,
+							type: row.Tipo || 'other',
+							responsible: row.Responsavel,
+							effort: Number(row.Esforco_Horas || row.Esforco) || 0,
+							dependencyId: row.Dependencia || null,
+							sprintId: row.Sprint_ID,
+							usType: (row.Meta === 'Sim' ? 'goal' : 'item') as 'goal' | 'item',
+						}
+					})
 
 					const sheetSquads = workbook.Sheets['Squads']
 					const squadsData = sheetSquads
@@ -144,7 +153,7 @@ export function useDataPersistence() {
 
 	const downloadImportTemplate = () => {
 		const wb = XLSX.utils.book_new()
-		const templateTasks = [{ Nome: 'Tarefa Exemplo', Tipo: 'backend', Responsavel: '', Esforco: 8, Duracao: 1, Meta: 'Sim' }]
+		const templateTasks = [{ Nome: 'Tarefa Exemplo', US_ID: 'US-001', Tipo: 'backend', Responsavel: '', Esforco_Horas: 8, Duracao_Dias: 1, Meta: 'Sim' }]
 		XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(templateTasks), 'Tarefas')
 		XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{ Nome: 'Squad Exemplo', Cor: '#3b82f6' }]), 'Squads')
 		XLSX.writeFile(wb, 'Modelo-Importacao-Gantt.xlsx')
