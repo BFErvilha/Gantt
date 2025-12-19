@@ -5,11 +5,9 @@ import { format, parseISO, eachDayOfInterval, isWeekend } from 'date-fns'
 
 const { config, addHolidayToSquad, removeHolidayFromSquad, updateSprintInSquad, updateMember, addMemberDayOff, removeMemberDayOff, automaticRisks } = useGantt()
 
-// Seleção de contexto (Obrigatórios)
 const selectedSquadId = ref<string>('')
 const selectedSprintId = ref<string>('')
 
-// Estado local para o formulário da Sprint
 const sprintForm = ref({
 	id: '',
 	name: '',
@@ -27,7 +25,6 @@ const editingMemberIndex = ref<number | null>(null)
 const memberDayOffInput = ref('')
 const memberCapacityInput = ref(8)
 
-// Computados para facilitar acesso
 const selectedSquad = computed(() => config.value.squads.find(s => s.id === selectedSquadId.value))
 const squadSprints = computed(() => selectedSquad.value?.sprints || [])
 const currentSprint = computed(() => squadSprints.value.find(s => s.id === selectedSprintId.value))
@@ -37,7 +34,6 @@ const contextMembers = computed(() => {
 	return config.value.teamMembers.filter(m => m.squadIds.includes(selectedSquadId.value))
 })
 
-// Sincroniza o formulário quando a sprint muda
 watch(selectedSprintId, newId => {
 	if (newId && currentSprint.value) {
 		sprintForm.value = {
@@ -51,7 +47,6 @@ watch(selectedSprintId, newId => {
 	}
 })
 
-// Cálculo de métricas da Sprint em tempo real
 const sprintMetrics = computed(() => {
 	if (!sprintForm.value.startDate || !sprintForm.value.endDate) return { working: 0, calendar: 0 }
 
@@ -76,7 +71,6 @@ const sprintMetrics = computed(() => {
 	return { working: workingDays, calendar: calendarDays }
 })
 
-// Persistência
 const saveSprintChanges = () => {
 	if (selectedSquadId.value && selectedSprintId.value) {
 		updateSprintInSquad(selectedSquadId.value, selectedSprintId.value, { ...sprintForm.value })
@@ -90,7 +84,6 @@ const handleAddHoliday = () => {
 	}
 }
 
-// Gestão de Membros (Contextual)
 const startEditMember = (member: any) => {
 	const index = config.value.teamMembers.findIndex(m => m.name === member.name)
 	if (index !== -1) {
@@ -114,7 +107,6 @@ const addDayOff = () => {
 	}
 }
 
-// Abre o calendário nativo ao clicar no input
 const openPicker = (e: any) => {
 	if ('showPicker' in HTMLInputElement.prototype) {
 		e.target.showPicker()

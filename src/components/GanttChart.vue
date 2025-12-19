@@ -472,7 +472,7 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 							class="flex-shrink-0 border-r border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center text-[10px] select-none transition-colors"
 							:class="{
 								'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-bold': day.isHoliday,
-								'bg-blue-100/50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300': day.isEvent, // NOVO: Cor para Ritos
+								'bg-blue-100/50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300': day.isEvent,
 								'bg-red-50/50 dark:bg-red-900/20 text-red-300 dark:text-red-400': day.isWeekend && !day.isHoliday && !day.isEvent,
 								'bg-white dark:bg-slate-800': !day.isWeekend && !day.isHoliday && !day.isEvent,
 							}"
@@ -490,7 +490,7 @@ const hasFilters = computed(() => filterSearch.value || filterResponsible.value 
 								class="border-r border-slate-200/50 dark:border-slate-700/50 h-full box-border"
 								:class="{
 									'bg-purple-50/40 dark:bg-purple-900/10': day.isHoliday,
-									'bg-blue-50/30 dark:bg-blue-900/10': day.isEvent, // NOVO: Fundo para ritos
+									'bg-blue-50/30 dark:bg-blue-900/10': day.isEvent,
 									'bg-red-50/30 dark:bg-red-900/10': day.isWeekend && !day.isHoliday && !day.isEvent,
 								}"
 								:style="{ width: cellWidth + 'px' }"
