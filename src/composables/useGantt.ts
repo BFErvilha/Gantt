@@ -27,6 +27,11 @@ export interface Sprint {
 	startDate: string
 	endDate: string
 	squadId?: string
+	planningDate?: string
+	refinementDate?: string
+	reviewDate?: string
+	retroDate?: string
+	skipWeekends?: boolean
 }
 
 export interface Task {
@@ -246,22 +251,35 @@ export function useGantt() {
 		return addDays(limitDate, 7)
 	})
 
-	const isNonWorkingDay = (date: Date, responsibleName?: string) => {
+	const isNonWorkingDay = (date: Date, responsibleName?: string, sprintId?: string) => {
 		if (!isValid(date)) return false
 		const dateString = format(date, 'yyyy-MM-dd')
-		const isGlobalHoliday = config.value.holidays.includes(dateString)
-		if (isGlobalHoliday) return true
-		if (config.value.skipWeekends && isWeekend(date)) return true
+
+		if (config.value.holidays.includes(dateString)) return true
+
+		if (sprintId) {
+			const sprint = findSprintById(sprintId)
+			if (sprint) {
+				const isSprintEvent = [sprint.planningDate, sprint.refinementDate, sprint.reviewDate, sprint.retroDate].includes(dateString)
+
+				if (isSprintEvent) return true
+
+				const skip = sprint.skipWeekends ?? config.value.skipWeekends
+				if (skip && isWeekend(date)) return true
+			}
+		} else {
+			if (config.value.skipWeekends && isWeekend(date)) return true
+		}
+
 		if (responsibleName) {
 			const member = config.value.teamMembers.find(m => m.name === responsibleName)
-			if (member && member.daysOff && member.daysOff.includes(dateString)) {
-				return true
-			}
+			if (member?.daysOff?.includes(dateString)) return true
 		}
+
 		return false
 	}
 
-	const calculateEndDate = (start: Date, duration: number, responsibleName?: string) => {
+	const calculateEndDate = (start: Date, duration: number, responsibleName?: string, sprintId?: string) => {
 		if (!isValid(start)) return new Date()
 		if (duration === 0) return start
 
@@ -272,17 +290,17 @@ export function useGantt() {
 		let safeLoop = 0
 		while (daysAdded < targetDays && safeLoop < 1000) {
 			current = addDays(current, 1)
-			if (!isNonWorkingDay(current, responsibleName)) daysAdded++
+			if (!isNonWorkingDay(current, responsibleName, sprintId)) daysAdded++
 			safeLoop++
 		}
 		return current
 	}
 
-	const getNextValidStartDate = (date: Date, responsibleName?: string) => {
+	const getNextValidStartDate = (date: Date, responsibleName?: string, sprintId?: string) => {
 		if (!isValid(date)) return new Date()
 		let current = date
 		let safeLoop = 0
-		while (isNonWorkingDay(current, responsibleName) && safeLoop < 365) {
+		while (isNonWorkingDay(current, responsibleName, sprintId) && safeLoop < 365) {
 			current = addDays(current, 1)
 			safeLoop++
 		}
@@ -334,7 +352,7 @@ export function useGantt() {
 					}
 				}
 
-				const end = calculateEndDate(start, task.isMilestone ? 0 : task.duration, task.responsible)
+				const end = calculateEndDate(start, task.isMilestone ? 0 : task.duration, task.responsible, task.sprintId)
 				const currentData = tempDates.get(task.id)
 
 				if (!currentData || currentData.start.getTime() !== start.getTime()) {
@@ -675,13 +693,14 @@ export function useGantt() {
 		}
 	}
 
-	const updateSprintInSquad = (squadId: string, sprintId: string, name: string, startDate: string, endDate: string) => {
+	const updateSprintInSquad = (squadId: string, sprintId: string, sprintData: Partial<Sprint>) => {
 		const squad = config.value.squads.find(s => s.id === squadId)
 		if (squad) {
 			const idx = squad.sprints.findIndex(s => s.id === sprintId)
 			if (idx !== -1) {
-				squad.sprints[idx] = { ...squad.sprints[idx], name, startDate, endDate }
+				squad.sprints[idx] = { ...squad.sprints[idx], ...sprintData }
 				squad.sprints.sort((a, b) => a.startDate.localeCompare(b.startDate))
+				toast.show('Configurações da Sprint salvas!', 'success')
 			}
 		}
 	}
@@ -937,21 +956,15 @@ export function useGantt() {
 		if (!squad) return { calendarDays: 0, workingDays: 0, totalTeamCapacity: 0 }
 
 		const start = isValid(parseISO(squad.startDate)) ? startOfDay(parseISO(squad.startDate)) : startOfDay(new Date())
-		let end = addDays(start, 30)
-
-		if (squad.deadline && isValid(parseISO(squad.deadline))) {
-			end = startOfDay(parseISO(squad.deadline))
-		}
+		let end = squad.deadline ? startOfDay(parseISO(squad.deadline)) : addDays(start, 30)
 
 		const calendarDays = differenceInCalendarDays(end, start) + 1
 		let workingDays = 0
 		let current = start
 
-		let loop = 0
-		while (current <= end && loop < 3650) {
+		while (current <= end) {
 			if (!isNonWorkingDay(current)) workingDays++
 			current = addDays(current, 1)
-			loop++
 		}
 
 		const members = config.value.teamMembers.filter(m => m.squadIds.includes(squadId))
