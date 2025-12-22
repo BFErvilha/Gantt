@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useGantt, type Squad } from '@/composables/useGantt'
+import { useToast } from '@/composables/useToast'
 
-const { config, addMember, removeMember, addSquad, updateSquad, removeSquad, linkMemberToSquad, unlinkMemberFromSquad, updateMember } = useGantt()
+const { config, addMember, removeMember, addSquad, updateSquad, removeSquad, linkMemberToSquad, unlinkMemberFromSquad, updateMember, addSprintToSquad } = useGantt()
+
+const toast = useToast()
 
 const squadNameInput = ref('')
 const squadColorInput = ref('#3b82f6')
@@ -13,6 +16,8 @@ const memberNameInput = ref('')
 const memberSectorInput = ref('')
 const memberCapacityInput = ref(8)
 const selectedMemberIdToAdd = ref('')
+
+const newSprintName = ref('')
 
 const editingMemberIndex = ref<number | null>(null)
 
@@ -41,12 +46,21 @@ const selectSquad = (id: string) => {
 	memberSectorInput.value = ''
 	memberCapacityInput.value = 8
 	editingMemberIndex.value = null
+	newSprintName.value = ''
 }
 
 const removeSquadHandler = (id: string) => {
 	if (confirm('Tem certeza que deseja excluir esta Squad? Os membros voltarão para o diretório geral.')) {
 		removeSquad(id)
 		if (selectedSquadId.value === id) selectedSquadId.value = null
+	}
+}
+
+const handleAddSprint = () => {
+	if (selectedSquadId.value && newSprintName.value) {
+		addSprintToSquad(selectedSquadId.value, newSprintName.value, '', '')
+		newSprintName.value = ''
+		toast.show('Sprint vinculada! Configure as datas na aba Configurações.', 'success')
 	}
 }
 
@@ -242,7 +256,7 @@ const availableSectors = ['Frontend', 'Backend', 'Fullstack', 'QA', 'Design', 'P
 				</div>
 
 				<div class="mb-4 bg-blue-50 dark:bg-blue-900/10 p-4 rounded-lg border border-blue-100 dark:border-blue-800/30">
-					<p class="text-xs text-blue-800 dark:text-blue-200 mb-3 font-medium">Vincule um membro existente a esta squad e defina sua capacidade de trabalho.</p>
+					<p class="text-xs text-blue-800 dark:text-blue-200 mb-3 font-medium">Vincule um membro existente a esta squad.</p>
 					<div class="flex gap-2 items-end">
 						<div class="flex-1">
 							<label class="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Membro</label>
@@ -257,8 +271,15 @@ const availableSectors = ['Frontend', 'Backend', 'Fullstack', 'QA', 'Design', 'P
 						</div>
 						<button @click="handleLinkMember" :disabled="!selectedMemberIdToAdd" class="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700 transition-colors disabled:opacity-50">Vincular</button>
 					</div>
-					<div v-if="availableMembersToLink.length === 0 && config.teamMembers.length > 0" class="mt-2 text-[10px] text-amber-600">* Todos os membros cadastrados já estão nesta squad.</div>
-					<div v-if="config.teamMembers.length === 0" class="mt-2 text-[10px] text-red-500 cursor-pointer" @click="selectedSquadId = null">* Nenhum membro cadastrado no sistema. Clique aqui para ir ao Diretório.</div>
+				</div>
+
+				<div class="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-lg border border-indigo-100 dark:border-indigo-800/30 transition-all">
+					<h4 class="text-xs font-bold uppercase text-indigo-600 dark:text-indigo-400 mb-3 tracking-wider flex items-center gap-2"><span>🚀</span> Nova Sprint para esta Squad</h4>
+					<div class="flex gap-2">
+						<input v-model="newSprintName" type="text" placeholder="Nome da Sprint (ex: Sprint 01)" class="flex-1 text-sm rounded border-slate-300 dark:border-slate-600 p-2 dark:bg-slate-700 dark:text-white" @keyup.enter="handleAddSprint" />
+						<button @click="handleAddSprint" :disabled="!newSprintName" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 rounded text-sm font-bold transition-all disabled:opacity-50">Vincular Sprint</button>
+					</div>
+					<p class="text-[10px] text-slate-400 mt-2 italic">* O calendário e ritos desta sprint devem ser configurados na aba "Configurações".</p>
 				</div>
 
 				<div class="space-y-2 overflow-y-auto custom-scrollbar flex-1">
