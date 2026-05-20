@@ -1,5 +1,5 @@
 import { ref, computed, watch } from 'vue'
-import { addDays, format, startOfDay, isWeekend, differenceInCalendarDays, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addMonths, addWeeks, isAfter, isBefore, isValid } from 'date-fns'
+import { addDays, format, startOfDay, isWeekend, differenceInCalendarDays, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addMonths, addWeeks, isAfter, isBefore, isValid, eachDayOfInterval } from 'date-fns'
 import { useToast } from './useToast'
 
 export interface Squad {
@@ -32,6 +32,15 @@ export interface Sprint {
 	reviewDate?: string
 	retroDate?: string
 	skipWeekends?: boolean
+	closedAt?: string // ISO date when sprint was closed
+}
+
+export type TaskStatus = 'new' | 'active' | 'completed' | 'cancelled'
+
+export interface SprintCloseDecision {
+	taskId: string
+	action: 'completed' | 'carryover' | 'cancelled'
+	targetSprintId?: string
 }
 
 export interface Task {
@@ -45,6 +54,7 @@ export interface Task {
 	type: 'frontend' | 'backend' | 'qualidade' | 'other'
 	responsible?: string
 	effort?: number
+	status: TaskStatus
 	manualStartDate?: string
 	startDate?: Date
 	endDate?: Date
@@ -72,12 +82,15 @@ export interface ProjectConfig {
 	teamMembers: TeamMember[]
 	sprints: Sprint[]
 	squads: Squad[]
+	typeGapDays?: number
 }
 
 export type ViewMode = 'project' | 'month' | 'week'
 
 const STORAGE_KEY_TASKS = 'gantt-pro-tasks'
 const STORAGE_KEY_CONFIG = 'gantt-pro-config'
+const SPRINT_CAPACITY_FACTOR = 0.7
+const MAX_SNAPSHOTS = 10
 
 const loadInitialTasks = (): Task[] => {
 	try {
@@ -86,10 +99,10 @@ const loadInitialTasks = (): Task[] => {
 			return JSON.parse(saved).map((t: any) => ({
 				...t,
 				isNotPlanned: t.isNotPlanned ?? false,
-				isCompleted: t.isCompleted ?? false,
 				isMilestone: t.isMilestone ?? false,
 				usType: t.usType || 'item',
 				classification: typeof t.classification === 'number' ? t.classification : 0,
+				status: (t.status as TaskStatus) || (t.isCompleted ? 'completed' : (t.progress && t.progress > 0 ? 'active' : 'new')),
 			}))
 		}
 	} catch (e) {
@@ -108,6 +121,7 @@ const loadInitialConfig = (): ProjectConfig => {
 		teamMembers: [],
 		sprints: [],
 		squads: [],
+		typeGapDays: 3,
 	}
 
 	try {
@@ -159,6 +173,7 @@ const loadInitialConfig = (): ProjectConfig => {
 				sprints: [],
 				squads: squads,
 				holidays: Array.isArray(parsed.holidays) ? parsed.holidays : [],
+				typeGapDays: typeof parsed.typeGapDays === 'number' ? parsed.typeGapDays : 3,
 			}
 		}
 	} catch (e) {
@@ -171,7 +186,8 @@ const loadInitialConfig = (): ProjectConfig => {
 const tasks = ref<Task[]>(loadInitialTasks())
 const config = ref<ProjectConfig>(loadInitialConfig())
 const editingTask = ref<Task | null>(null)
-const tasksSnapshot = ref<string | null>(null)
+const tasksSnapshot = ref<string[]>([])
+const lastCascadeReport = ref<{ id: string; name: string; deltaDays: number }[]>([])
 
 const isTaskModalOpen = ref(false)
 
@@ -186,6 +202,20 @@ const filterSquad = ref('')
 
 export function useGantt() {
 	const toast = useToast()
+
+	const hasCyclicDependency = (taskId: string, proposedDepId: string): boolean => {
+		if (taskId === proposedDepId) return true
+		const visited = new Set<string>()
+		const walk = (currentId: string): boolean => {
+			if (currentId === taskId) return true
+			if (visited.has(currentId)) return false
+			visited.add(currentId)
+			const t = tasks.value.find(x => x.id === currentId)
+			if (!t || !t.dependencyId) return false
+			return walk(t.dependencyId)
+		}
+		return walk(proposedDepId)
+	}
 
 	watch(
 		[tasks, config],
@@ -215,6 +245,48 @@ export function useGantt() {
 		}
 		return undefined
 	}
+
+	const isSprintClosed = (sprintId: string): boolean => {
+		const sprint = findSprintById(sprintId)
+		return !!sprint?.closedAt
+	}
+
+	const isTaskLocked = (task: Task): boolean => {
+		if (!task.sprintId) return false
+		return isSprintClosed(task.sprintId)
+	}
+
+	const sprintsAwaitingClose = computed(() => {
+		const today = startOfDay(new Date())
+		return config.value.squads.flatMap(squad =>
+			squad.sprints
+				.filter(sp => {
+					if (sp.closedAt) return false
+					const start = parseISO(sp.startDate)
+					// Any sprint that has already started (active or past) can be closed
+					return isValid(start) && !isAfter(start, today)
+				})
+				.map(sp => {
+					const end = parseISO(sp.endDate)
+					const isPast = isValid(end) && !isAfter(end, today)
+					return { ...sp, squadId: squad.id, squadName: squad.name, isPast }
+				}),
+		)
+	})
+
+	const currentActiveSprints = computed(() => {
+		const today = startOfDay(new Date())
+		return config.value.squads.flatMap(squad =>
+			squad.sprints
+				.filter(sp => {
+					if (sp.closedAt) return false
+					const start = parseISO(sp.startDate)
+					const end = parseISO(sp.endDate)
+					return isValid(start) && isValid(end) && !isBefore(today, start) && !isAfter(today, end)
+				})
+				.map(sp => ({ ...sp, squadId: squad.id })),
+		)
+	})
 
 	const suggestedEndDate = computed(() => {
 		let maxDate = startOfDay(new Date(config.value.projectStartDate))
@@ -313,6 +385,13 @@ export function useGantt() {
 		const tempDates = new Map<string, { start: Date; end: Date; type: string }>()
 		const taskQueue = [...tasks.value]
 
+		const cyclicTaskIds = new Set<string>()
+		for (const task of taskQueue) {
+			if (task.dependencyId && hasCyclicDependency(task.id, task.dependencyId)) {
+				cyclicTaskIds.add(task.id)
+			}
+		}
+
 		let hasChanges = true
 		let iterations = 0
 		const maxIterations = taskQueue.length * 2
@@ -328,13 +407,10 @@ export function useGantt() {
 					if (isValid(manualDate)) {
 						start = getNextValidStartDate(manualDate, task.responsible)
 					}
-				} else if (task.dependencyId) {
+				} else if (task.dependencyId && !cyclicTaskIds.has(task.id)) {
 					const depData = tempDates.get(task.dependencyId)
 					if (depData) {
-						let gapDays = 1
-						if (depData.type === 'backend' && task.type === 'frontend') {
-							gapDays = 3
-						}
+						const gapDays = (depData.type === 'backend' && task.type === 'frontend') ? (config.value.typeGapDays ?? 3) : 1
 						let tentativeStart = addDays(depData.end, gapDays)
 						start = getNextValidStartDate(tentativeStart, task.responsible)
 					}
@@ -367,8 +443,11 @@ export function useGantt() {
 		return tasks.value.map(task => {
 			const dates = tempDates.get(task.id) || { start: baseDate, end: baseDate, type: task.type }
 			const calendarDuration = differenceInCalendarDays(dates.end, dates.start) + 1
+			const status: TaskStatus = task.status || 'new'
 			return {
 				...task,
+				status,
+				isCompleted: status === 'completed',
 				startDate: dates.start,
 				endDate: dates.end,
 				offsetDays: differenceInCalendarDays(dates.start, baseDate),
@@ -435,10 +514,14 @@ export function useGantt() {
 			type: t.type || 'other',
 			responsible: t.responsible || '',
 			effort: t.effort || 0,
+			status: (t.status as TaskStatus) || 'new',
 			sprintId: t.sprintId || undefined,
-			isNotPlanned: !t.sprintId,
-			isCompleted: false,
+			isNotPlanned: t.isNotPlanned ?? !t.sprintId,
 			isMilestone: t.isMilestone || false,
+			manualStartDate: t.manualStartDate || undefined,
+			originalStartDate: t.originalStartDate || undefined,
+			originalEndDate: t.originalEndDate || undefined,
+			completedDate: t.completedDate || undefined,
 			usType: t.usType || 'item',
 			classification: typeof t.classification === 'number' ? t.classification : 0,
 		})) as Task[]
@@ -459,9 +542,9 @@ export function useGantt() {
 			type: task.type || 'other',
 			responsible: task.responsible || '',
 			effort: task.effort || 0,
+			status: 'new' as TaskStatus,
 			sprintId: task.sprintId,
 			isNotPlanned: !task.sprintId,
-			isCompleted: false,
 			completedDate: undefined,
 			isMilestone: task.isMilestone || false,
 			usType: task.usType || 'item',
@@ -470,11 +553,29 @@ export function useGantt() {
 	}
 
 	const updateTask = (updatedTask: Task) => {
+		const beforePositions = new Map<string, number>(
+			computedTasks.value
+				.filter(t => t.startDate)
+				.map(t => [t.id, t.startDate!.getTime()])
+		)
+
 		const index = tasks.value.findIndex(t => t.id === updatedTask.id)
 		if (index !== -1) tasks.value[index] = { ...updatedTask }
 		editingTask.value = null
 		isTaskModalOpen.value = false
+
+		const affected: { id: string; name: string; deltaDays: number }[] = []
+		computedTasks.value.forEach(t => {
+			if (t.id === updatedTask.id || !t.startDate) return
+			const before = beforePositions.get(t.id)
+			if (before === undefined) return
+			const delta = Math.round((t.startDate.getTime() - before) / 86400000)
+			if (delta !== 0) affected.push({ id: t.id, name: t.name, deltaDays: delta })
+		})
+		lastCascadeReport.value = affected
 	}
+
+	const clearCascadeReport = () => { lastCascadeReport.value = [] }
 
 	const removeTask = (id: string) => {
 		tasks.value = tasks.value.filter(t => t.id !== id)
@@ -487,11 +588,11 @@ export function useGantt() {
 		}
 	}
 
-	const toggleTaskCompletion = (taskId: string) => {
+	const setTaskStatus = (taskId: string, status: TaskStatus) => {
 		const task = tasks.value.find(t => t.id === taskId)
 		if (task) {
-			task.isCompleted = !task.isCompleted
-			if (task.isCompleted) {
+			task.status = status
+			if (status === 'completed') {
 				task.completedDate = format(new Date(), 'yyyy-MM-dd')
 			} else {
 				task.completedDate = undefined
@@ -499,8 +600,15 @@ export function useGantt() {
 		}
 	}
 
+	const toggleTaskCompletion = (taskId: string) => {
+		const task = tasks.value.find(t => t.id === taskId)
+		if (!task) return
+		const next: TaskStatus = task.status === 'completed' ? 'new' : 'completed'
+		setTaskStatus(taskId, next)
+	}
+
 	const setEditingTask = (task: Task) => {
-		editingTask.value = JSON.parse(JSON.stringify(task))
+		editingTask.value = structuredClone(task)
 		isTaskModalOpen.value = true
 	}
 
@@ -542,16 +650,38 @@ export function useGantt() {
 		toast.show('Linha de base salva!', 'success')
 	}
 
+	const tasksSnapshotCount = computed(() => tasksSnapshot.value.length)
+
 	const createSnapshot = () => {
-		tasksSnapshot.value = JSON.stringify(tasks.value)
+		tasksSnapshot.value.push(JSON.stringify(tasks.value))
+		if (tasksSnapshot.value.length > MAX_SNAPSHOTS) {
+			tasksSnapshot.value.shift()
+		}
 	}
 
 	const restoreSnapshot = () => {
-		if (tasksSnapshot.value) {
-			tasks.value = JSON.parse(tasksSnapshot.value)
-			tasksSnapshot.value = null
-			toast.show('Alterações desfeitas!', 'success')
+		if (tasksSnapshot.value.length > 0) {
+			const snapshot = tasksSnapshot.value.pop()!
+			tasks.value = JSON.parse(snapshot)
+			const remaining = tasksSnapshot.value.length
+			toast.show(remaining > 0 ? `Desfeito! (${remaining} passo(s) restante(s))` : 'Alterações desfeitas!', 'success')
 		}
+	}
+
+	const duplicateTask = (taskId: string) => {
+		const task = tasks.value.find(t => t.id === taskId)
+		if (!task) return
+		const newTask: Task = {
+			...structuredClone(task),
+			id: crypto.randomUUID(),
+			name: `${task.name} (cópia)`,
+			status: 'new',
+			completedDate: undefined,
+			originalStartDate: undefined,
+			originalEndDate: undefined,
+		}
+		tasks.value.push(newTask)
+		toast.show('Tarefa duplicada!', 'success')
 	}
 
 	const addHoliday = (date: string) => {
@@ -645,29 +775,25 @@ export function useGantt() {
 	}
 
 	const addSprint = (name: string, startDate: string, endDate: string, squadId?: string) => {
-		config.value.sprints.push({
-			id: crypto.randomUUID(),
-			name,
-			startDate,
-			endDate,
-			squadId,
-		})
-		config.value.sprints.sort((a, b) => a.startDate.localeCompare(b.startDate))
+		if (squadId) {
+			addSprintToSquad(squadId, name, startDate, endDate)
+		} else if (config.value.squads.length > 0) {
+			addSprintToSquad(config.value.squads[0].id, name, startDate, endDate)
+		}
 	}
 
 	const updateSprint = (id: string, name: string, startDate: string, endDate: string, squadId?: string) => {
-		const index = config.value.sprints.findIndex(s => s.id === id)
-		if (index !== -1) {
-			config.value.sprints[index] = { ...config.value.sprints[index], name, startDate, endDate, squadId }
-			config.value.sprints.sort((a, b) => a.startDate.localeCompare(b.startDate))
+		const targetSquadId = squadId || config.value.squads.find(s => s.sprints.some(sp => sp.id === id))?.id
+		if (targetSquadId) {
+			updateSprintInSquad(targetSquadId, id, { name, startDate, endDate })
 		}
 	}
 
 	const removeSprint = (id: string) => {
-		config.value.sprints = config.value.sprints.filter(s => s.id !== id)
-		tasks.value.forEach(t => {
-			if (t.sprintId === id) t.sprintId = undefined
-		})
+		const squad = config.value.squads.find(s => s.sprints.some(sp => sp.id === id))
+		if (squad) {
+			removeSprintFromSquad(squad.id, id)
+		}
 	}
 
 	const addHolidayToSquad = (squadId: string, date: string) => {
@@ -679,18 +805,21 @@ export function useGantt() {
 		if (squad) squad.holidays = squad.holidays.filter(d => d !== date)
 	}
 
-	const addSprintToSquad = (squadId: string, name: string, startDate: string, endDate: string) => {
+	const addSprintToSquad = (squadId: string, name: string, startDate: string, endDate: string): Sprint | undefined => {
 		const squad = config.value.squads.find(s => s.id === squadId)
 		if (squad) {
-			squad.sprints.push({
+			const newSprint: Sprint = {
 				id: crypto.randomUUID(),
 				name,
 				startDate,
 				endDate,
 				squadId,
-			})
+			}
+			squad.sprints.push(newSprint)
 			squad.sprints.sort((a, b) => a.startDate.localeCompare(b.startDate))
+			return newSprint
 		}
+		return undefined
 	}
 
 	const updateSprintInSquad = (squadId: string, sprintId: string, sprintData: Partial<Sprint>) => {
@@ -713,6 +842,37 @@ export function useGantt() {
 				if (t.sprintId === sprintId) t.sprintId = undefined
 			})
 		}
+	}
+
+	const closeSprint = (sprintId: string, decisions: SprintCloseDecision[]) => {
+		const sprint = findSprintById(sprintId)
+		if (!sprint) return
+
+		decisions.forEach(decision => {
+			const task = tasks.value.find(t => t.id === decision.taskId)
+			if (!task) return
+			if (decision.action === 'completed') {
+				task.status = 'completed'
+				if (!task.completedDate) task.completedDate = format(new Date(), 'yyyy-MM-dd')
+			} else if (decision.action === 'cancelled') {
+				task.status = 'cancelled'
+			} else if (decision.action === 'carryover' && decision.targetSprintId) {
+				task.sprintId = decision.targetSprintId
+				task.manualStartDate = undefined
+				task.status = task.status === 'completed' ? 'active' : task.status
+			}
+		})
+
+		// Mark the sprint as closed
+		for (const squad of config.value.squads) {
+			const sp = squad.sprints.find(s => s.id === sprintId)
+			if (sp) {
+				sp.closedAt = format(new Date(), 'yyyy-MM-dd')
+				break
+			}
+		}
+
+		toast.show(`${sprint.name} encerrada com sucesso! 🎉`, 'success')
 	}
 
 	const projectCapacityStats = computed(() => {
@@ -914,12 +1074,17 @@ export function useGantt() {
 
 				const sprintStart = parseISO(sprint.startDate)
 				const sprintEnd = parseISO(sprint.endDate)
-				const days = differenceInCalendarDays(sprintEnd, sprintStart)
+				const sprintWorkingDays = eachDayOfInterval({ start: sprintStart, end: sprintEnd }).filter(d => {
+					const dStr = format(d, 'yyyy-MM-dd')
+					const skipWe = sprint.skipWeekends ?? squad.skipWeekends
+					const isRito = [sprint.planningDate, sprint.refinementDate, sprint.reviewDate, sprint.retroDate].includes(dStr)
+					return !(skipWe && isWeekend(d)) && !squad.holidays.includes(dStr) && !config.value.holidays.includes(dStr) && !isRito
+				}).length
 
 				const squadMembers = config.value.teamMembers.filter(m => m.squadIds.includes(squad.id))
 
 				const sprintCapacityStats = squadMembers.map(m => {
-					const totalHours = days * m.capacity * 0.7
+					const totalHours = sprintWorkingDays * m.capacity * SPRINT_CAPACITY_FACTOR
 					return { name: m.name, limit: totalHours, used: 0 }
 				})
 
@@ -987,13 +1152,18 @@ export function useGantt() {
 					skipWeekends: s.skipWeekends ?? true,
 				}))
 			}
+			if (newConfig.teamMembers) config.value.teamMembers = newConfig.teamMembers
+			if (newConfig.projectStartDate) config.value.projectStartDate = newConfig.projectStartDate
+			if (newConfig.deadline !== undefined) config.value.deadline = newConfig.deadline ?? ''
+			if (newConfig.skipWeekends !== undefined) config.value.skipWeekends = newConfig.skipWeekends
+			if (newConfig.holidays) config.value.holidays = newConfig.holidays
+			if (newConfig.typeGapDays !== undefined) config.value.typeGapDays = newConfig.typeGapDays
 
-			if (newConfig.teamMembers) {
-				config.value.teamMembers = newConfig.teamMembers
-			}
 			if (newTasks) {
 				tasks.value = newTasks.map(t => ({
 					id: t.id || crypto.randomUUID(),
+					usId: t.usId || '',
+					customId: t.customId || '',
 					name: t.name || 'Sem nome',
 					duration: t.duration || 1,
 					dependencyId: t.dependencyId || null,
@@ -1001,12 +1171,16 @@ export function useGantt() {
 					type: t.type || 'other',
 					responsible: t.responsible || '',
 					effort: t.effort || 0,
+					status: (t.status as TaskStatus) || 'new',
 					sprintId: t.sprintId,
 					usType: t.usType || 'item',
-					isNotPlanned: !t.sprintId,
-					isCompleted: t.isCompleted || false,
+					isNotPlanned: t.isNotPlanned ?? !t.sprintId,
 					isMilestone: t.isMilestone || false,
 					classification: t.classification || 0,
+					manualStartDate: t.manualStartDate || undefined,
+					originalStartDate: t.originalStartDate || undefined,
+					originalEndDate: t.originalEndDate || undefined,
+					completedDate: t.completedDate || undefined,
 				})) as Task[]
 			}
 
@@ -1032,6 +1206,7 @@ export function useGantt() {
 		addTask,
 		updateTask,
 		removeTask,
+		setTaskStatus,
 		toggleTaskCompletion,
 		importTasks,
 		setEditingTask,
@@ -1065,6 +1240,11 @@ export function useGantt() {
 		createSnapshot,
 		restoreSnapshot,
 		tasksSnapshot,
+		tasksSnapshotCount,
+		duplicateTask,
+		hasCyclicDependency,
+		lastCascadeReport,
+		clearCascadeReport,
 		addSquad,
 		updateSquad,
 		removeSquad,
@@ -1078,6 +1258,11 @@ export function useGantt() {
 		addSprintToSquad,
 		updateSprintInSquad,
 		removeSprintFromSquad,
+		closeSprint,
+		isSprintClosed,
+		isTaskLocked,
+		sprintsAwaitingClose,
+		currentActiveSprints,
 		restoreFullBackup,
 	}
 }

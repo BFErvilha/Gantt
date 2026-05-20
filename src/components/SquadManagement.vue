@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useGantt, type Squad } from '@/composables/useGantt'
 import { useToast } from '@/composables/useToast'
+import { focusMemberInputFlag } from '@/composables/useSquadFocus'
 
 const { config, addMember, removeMember, addSquad, updateSquad, removeSquad, linkMemberToSquad, unlinkMemberFromSquad, updateMember, addSprintToSquad } = useGantt()
 
@@ -18,8 +19,16 @@ const memberCapacityInput = ref(8)
 const selectedMemberIdToAdd = ref('')
 
 const newSprintName = ref('')
+const newSprintStartDate = ref('')
+const newSprintEndDate = ref('')
 
 const editingMemberIndex = ref<number | null>(null)
+const memberNameInputEl = ref<HTMLInputElement | null>(null)
+
+watch(focusMemberInputFlag, () => {
+	memberNameInputEl.value?.focus()
+	memberNameInputEl.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+})
 
 const handleSaveSquad = () => {
 	if (squadNameInput.value) {
@@ -58,9 +67,12 @@ const removeSquadHandler = (id: string) => {
 
 const handleAddSprint = () => {
 	if (selectedSquadId.value && newSprintName.value) {
-		addSprintToSquad(selectedSquadId.value, newSprintName.value, '', '')
+		const hasDates = !!newSprintStartDate.value
+		addSprintToSquad(selectedSquadId.value, newSprintName.value, newSprintStartDate.value, newSprintEndDate.value)
 		newSprintName.value = ''
-		toast.show('Sprint vinculada! Configure as datas na aba Configurações.', 'success')
+		newSprintStartDate.value = ''
+		newSprintEndDate.value = ''
+		toast.show(hasDates ? 'Sprint criada! Configure os ritos em Configurações.' : 'Sprint criada! Defina as datas em Configurações.', 'success')
 	}
 }
 
@@ -134,7 +146,7 @@ const availableSectors = ['Frontend', 'Backend', 'Fullstack', 'QA', 'Design', 'P
 </script>
 
 <template>
-	<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start h-[calc(100vh-200px)]">
+	<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start lg:h-[calc(100vh-200px)]">
 		<div class="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 h-full flex flex-col">
 			<h3 class="font-bold text-slate-800 dark:text-slate-200 mb-4 flex items-center gap-2">
 				<svg class="w-5 h-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -192,47 +204,56 @@ const availableSectors = ['Frontend', 'Backend', 'Fullstack', 'QA', 'Design', 'P
 
 				<div class="mb-4 bg-emerald-50 dark:bg-emerald-900/10 p-4 rounded-lg border border-emerald-100 dark:border-emerald-800/30">
 					<p class="text-xs text-emerald-800 dark:text-emerald-200 mb-3 font-medium">Cadastre aqui todos os colaboradores. Depois, selecione uma Squad à esquerda para vinculá-los.</p>
-					<div class="flex gap-2">
-						<input v-model="memberNameInput" type="text" placeholder="Nome do Colaborador" class="flex-1 text-sm rounded border-slate-300 dark:border-slate-600 shadow-sm p-2 dark:bg-slate-700 dark:text-white" />
-						<input list="sectors-list" v-model="memberSectorInput" placeholder="Setor (Opcional)" class="w-1/3 text-sm rounded border-slate-300 dark:border-slate-600 shadow-sm p-2 dark:bg-slate-700 dark:text-white" />
-						<datalist id="sectors-list"><option v-for="s in availableSectors" :key="s" :value="s"></option></datalist>
-
-						<button @click="handleSaveNewMember" class="bg-emerald-600 text-white px-4 rounded text-sm font-bold hover:bg-emerald-700 transition-colors">
-							{{ editingMemberIndex !== null ? 'Atualizar' : 'Cadastrar' }}
-						</button>
-						<button v-if="editingMemberIndex !== null" @click="cancelMemberEdit" class="bg-slate-200 text-slate-600 px-3 rounded text-sm font-bold">Cancelar</button>
+					<datalist id="sectors-list"><option v-for="s in availableSectors" :key="s" :value="s"></option></datalist>
+					<div class="space-y-2">
+						<input ref="memberNameInputEl" v-model="memberNameInput" type="text" placeholder="Nome do Colaborador" class="w-full text-sm rounded border-slate-300 dark:border-slate-600 shadow-sm p-2 dark:bg-slate-700 dark:text-white" />
+						<div class="flex flex-col sm:flex-row gap-2">
+							<input list="sectors-list" v-model="memberSectorInput" placeholder="Setor (Opcional)" class="flex-1 min-w-0 text-sm rounded border-slate-300 dark:border-slate-600 shadow-sm p-2 dark:bg-slate-700 dark:text-white" />
+							<div class="flex gap-2">
+								<button @click="handleSaveNewMember" class="flex-1 sm:flex-none bg-emerald-600 text-white px-4 rounded text-sm font-bold hover:bg-emerald-700 transition-colors whitespace-nowrap">
+									{{ editingMemberIndex !== null ? 'Atualizar' : 'Cadastrar' }}
+								</button>
+								<button v-if="editingMemberIndex !== null" @click="cancelMemberEdit" class="bg-slate-200 text-slate-600 px-3 rounded text-sm font-bold whitespace-nowrap">Cancelar</button>
+							</div>
+						</div>
 					</div>
 				</div>
 
-				<div class="overflow-y-auto custom-scrollbar flex-1 border rounded-lg border-slate-100 dark:border-slate-700">
+				<div class="overflow-y-auto overflow-x-auto custom-scrollbar flex-1 border rounded-lg border-slate-100 dark:border-slate-700">
 					<table class="w-full text-sm text-left">
 						<thead class="bg-slate-50 dark:bg-slate-900 text-xs uppercase text-slate-500 font-bold sticky top-0">
 							<tr>
-								<th class="px-4 py-2">Nome</th>
-								<th class="px-4 py-2">Setor</th>
-								<th class="px-4 py-2">Squads Vinculadas</th>
-								<th class="px-4 py-2 text-right">Ações</th>
+								<th class="px-3 py-2">Nome</th>
+								<th class="px-3 py-2 hidden sm:table-cell">Setor</th>
+								<th class="px-3 py-2">Squads</th>
+								<th class="px-3 py-2 text-right">Ações</th>
 							</tr>
 						</thead>
 						<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
 							<tr v-for="member in config.teamMembers" :key="member.name" class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-								<td class="px-4 py-2 font-medium text-slate-700 dark:text-slate-200">{{ member.name }}</td>
-								<td class="px-4 py-2 text-slate-500 dark:text-slate-400">{{ member.sector }}</td>
-								<td class="px-4 py-2">
+								<td class="px-3 py-2 font-medium text-slate-700 dark:text-slate-200 max-w-[90px] truncate">{{ member.name }}</td>
+								<td class="px-3 py-2 text-slate-500 dark:text-slate-400 hidden sm:table-cell">{{ member.sector }}</td>
+								<td class="px-3 py-2">
 									<div class="flex flex-wrap gap-1">
-										<span v-for="sid in member.squadIds" :key="sid" class="text-[10px] px-1.5 rounded bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-500">
+										<span v-for="sid in member.squadIds" :key="sid" class="text-[10px] px-1.5 rounded bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-500 whitespace-nowrap">
 											{{ config.squads.find(s => s.id === sid)?.name || '?' }}
 										</span>
-										<span v-if="member.squadIds.length === 0" class="text-slate-400 text-xs italic">Sem vínculo</span>
+										<span v-if="member.squadIds.length === 0" class="text-slate-400 text-xs italic">—</span>
 									</div>
 								</td>
-								<td class="px-4 py-2 text-right">
-									<button @click="startEditMemberGlobal(member)" class="text-blue-500 hover:underline mr-2 text-xs">Editar</button>
-									<button @click="deleteMemberGlobal(member)" class="text-red-500 hover:underline text-xs">Excluir</button>
+								<td class="px-3 py-2 text-right whitespace-nowrap">
+									<button @click="startEditMemberGlobal(member)" class="text-blue-500 hover:text-blue-700 transition-colors inline-flex items-center mr-2" title="Editar">
+										<svg class="w-3.5 h-3.5 sm:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+										<span class="hidden sm:inline text-xs underline-offset-2 hover:underline">Editar</span>
+									</button>
+									<button @click="deleteMemberGlobal(member)" class="text-red-500 hover:text-red-700 transition-colors inline-flex items-center" title="Excluir">
+										<svg class="w-3.5 h-3.5 sm:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+										<span class="hidden sm:inline text-xs underline-offset-2 hover:underline">Excluir</span>
+									</button>
 								</td>
 							</tr>
 							<tr v-if="config.teamMembers.length === 0">
-								<td colspan="4" class="px-4 py-8 text-center text-slate-400 italic">Nenhum membro cadastrado. Use o formulário acima.</td>
+								<td colspan="4" class="px-3 py-8 text-center text-slate-400 italic">Nenhum membro cadastrado. Use o formulário acima.</td>
 							</tr>
 						</tbody>
 					</table>
@@ -257,7 +278,7 @@ const availableSectors = ['Frontend', 'Backend', 'Fullstack', 'QA', 'Design', 'P
 
 				<div class="mb-4 bg-blue-50 dark:bg-blue-900/10 p-4 rounded-lg border border-blue-100 dark:border-blue-800/30">
 					<p class="text-xs text-blue-800 dark:text-blue-200 mb-3 font-medium">Vincule um membro existente a esta squad.</p>
-					<div class="flex gap-2 items-end">
+					<div class="flex flex-col sm:flex-row gap-2 sm:items-end">
 						<div class="flex-1">
 							<label class="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Membro</label>
 							<select v-model="selectedMemberIdToAdd" class="w-full text-sm rounded border-slate-300 dark:border-slate-600 p-2 dark:bg-slate-700 dark:text-white">
@@ -265,21 +286,35 @@ const availableSectors = ['Frontend', 'Backend', 'Fullstack', 'QA', 'Design', 'P
 								<option v-for="m in availableMembersToLink" :key="m.name" :value="m.name">{{ m.name }} ({{ m.sector }})</option>
 							</select>
 						</div>
-						<div class="w-24">
-							<label class="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Capacidade</label>
-							<input v-model.number="memberCapacityInput" type="number" class="w-full text-sm rounded border-slate-300 dark:border-slate-600 p-2 dark:bg-slate-700 dark:text-white" />
+						<div class="flex gap-2 sm:contents">
+							<div class="w-28 sm:w-24">
+								<label class="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Capacidade</label>
+								<input v-model.number="memberCapacityInput" type="number" class="w-full text-sm rounded border-slate-300 dark:border-slate-600 p-2 dark:bg-slate-700 dark:text-white" />
+							</div>
+							<button @click="handleLinkMember" :disabled="!selectedMemberIdToAdd" class="flex-1 sm:flex-none bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 whitespace-nowrap self-end">Vincular</button>
 						</div>
-						<button @click="handleLinkMember" :disabled="!selectedMemberIdToAdd" class="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700 transition-colors disabled:opacity-50">Vincular</button>
 					</div>
 				</div>
 
 				<div class="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/10 rounded-lg border border-indigo-100 dark:border-indigo-800/30 transition-all">
-					<h4 class="text-xs font-bold uppercase text-indigo-600 dark:text-indigo-400 mb-3 tracking-wider flex items-center gap-2"><span>🚀</span> Nova Sprint para esta Squad</h4>
-					<div class="flex gap-2">
-						<input v-model="newSprintName" type="text" placeholder="Nome da Sprint (ex: Sprint 01)" class="flex-1 text-sm rounded border-slate-300 dark:border-slate-600 p-2 dark:bg-slate-700 dark:text-white" @keyup.enter="handleAddSprint" />
-						<button @click="handleAddSprint" :disabled="!newSprintName" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 rounded text-sm font-bold transition-all disabled:opacity-50">Vincular Sprint</button>
+					<h4 class="text-xs font-bold uppercase text-indigo-600 dark:text-indigo-400 mb-3 tracking-wider flex items-center gap-2"><span>🚀</span> Nova Sprint</h4>
+					<div class="space-y-2">
+						<input v-model="newSprintName" type="text" placeholder="Nome da Sprint (ex: Sprint 01)" class="w-full text-sm rounded border-slate-300 dark:border-slate-600 p-2 dark:bg-slate-700 dark:text-white" @keyup.enter="handleAddSprint" />
+						<div class="grid grid-cols-2 gap-2">
+							<div>
+								<label class="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Início</label>
+								<input v-model="newSprintStartDate" type="date" class="w-full text-xs rounded border-slate-300 dark:border-slate-600 p-1.5 dark:bg-slate-700 dark:text-white dark:[color-scheme:dark]" />
+							</div>
+							<div>
+								<label class="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Fim</label>
+								<input v-model="newSprintEndDate" type="date" class="w-full text-xs rounded border-slate-300 dark:border-slate-600 p-1.5 dark:bg-slate-700 dark:text-white dark:[color-scheme:dark]" />
+							</div>
+						</div>
+						<div class="flex items-center justify-between">
+							<p class="text-[10px] text-slate-400 italic">Ritos configuráveis em Configurações.</p>
+							<button @click="handleAddSprint" :disabled="!newSprintName" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded text-xs font-bold transition-all disabled:opacity-50">Criar Sprint</button>
+						</div>
 					</div>
-					<p class="text-[10px] text-slate-400 mt-2 italic">* O calendário e ritos desta sprint devem ser configurados na aba "Configurações".</p>
 				</div>
 
 				<div class="space-y-2 overflow-y-auto custom-scrollbar flex-1">

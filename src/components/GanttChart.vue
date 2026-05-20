@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, onUnmounted } from 'vue'
-import { useGantt, type Task } from '@/composables/useGantt'
-import { format, addDays, startOfWeek, endOfWeek, differenceInCalendarDays, isWeekend } from 'date-fns'
+import { ref, computed, onMounted, nextTick, onUnmounted, watch } from 'vue'
+import { useGantt, type Task, type SprintCloseDecision } from '@/composables/useGantt'
+import { format, addDays, startOfWeek, endOfWeek, differenceInCalendarDays, isWeekend, parseISO, isValid, startOfDay } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import SprintCloseModal from './SprintCloseModal.vue'
 
 const {
 	filteredTasks,
+	tasks,
 	config,
 	totalProjectDays,
 	setEditingTask,
@@ -25,14 +27,143 @@ const {
 	getOptimizationSuggestions,
 	createSnapshot,
 	restoreSnapshot,
-	tasksSnapshot,
+	tasksSnapshotCount,
+	lastCascadeReport,
+	clearCascadeReport,
+	sprintsAwaitingClose,
+	closeSprint,
+	isTaskLocked,
+	isSprintClosed,
 } = useGantt()
 
 const showCriticalPath = ref(false)
 const showRiskModal = ref(false)
 const ganttContainer = ref<HTMLDivElement | null>(null)
+
+// Sprint close modal
+const showSprintCloseModal = ref(false)
+const sprintToClose = ref<(typeof sprintsAwaitingClose.value)[0] | null>(null)
+
+const sprintTasksToClose = computed(() => {
+	if (!sprintToClose.value) return []
+	return tasks.value.filter(t => t.sprintId === sprintToClose.value!.id && t.status !== 'cancelled')
+})
+
+const futureSprintsForClose = computed(() => {
+	if (!sprintToClose.value) return []
+	const squadId = sprintToClose.value.squadId
+	const squad = config.value.squads.find(s => s.id === squadId)
+	if (!squad) return []
+	return squad.sprints.filter(sp => !sp.closedAt && sp.id !== sprintToClose.value!.id && sp.startDate > sprintToClose.value!.endDate)
+})
+
+const openSprintClose = (sprint: (typeof sprintsAwaitingClose.value)[0]) => {
+	sprintToClose.value = sprint
+	showSprintCloseModal.value = true
+}
+
+const handleSprintCloseConfirm = (decisions: SprintCloseDecision[]) => {
+	if (!sprintToClose.value) return
+	closeSprint(sprintToClose.value.id, decisions)
+	showSprintCloseModal.value = false
+	sprintToClose.value = null
+}
+
+const handleSprintCloseCancel = () => {
+	showSprintCloseModal.value = false
+	sprintToClose.value = null
+}
 const containerWidthPx = ref(0)
-const groupBy = ref<'none' | 'responsible' | 'sprint'>('none')
+const groupBy = ref<'none' | 'responsible' | 'sprint' | 'chain'>('none')
+const viewLayout = ref<'gantt' | 'board'>('gantt')
+
+// Cascade feedback panel
+const cascadePanel = ref<{ id: string; name: string; deltaDays: number }[]>([])
+const isCascadeUndo = ref(false)
+const cascadeUndoCount = ref(0)
+let cascadeTimer: ReturnType<typeof setTimeout> | null = null
+let cascadeUndoTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(lastCascadeReport, (report) => {
+	if (report.length === 0) return
+	cascadePanel.value = [...report]
+	isCascadeUndo.value = true
+	cascadeUndoCount.value = report.length
+	clearCascadeReport()
+	if (cascadeTimer) clearTimeout(cascadeTimer)
+	cascadeTimer = setTimeout(() => { cascadePanel.value = [] }, 8000)
+	if (cascadeUndoTimer) clearTimeout(cascadeUndoTimer)
+	cascadeUndoTimer = setTimeout(() => { isCascadeUndo.value = false }, 5000)
+})
+
+const dismissCascadePanel = () => {
+	cascadePanel.value = []
+	if (cascadeTimer) clearTimeout(cascadeTimer)
+}
+
+const boardColumns = computed(() => [
+	{ id: 'new', label: 'A Fazer', dotClass: 'bg-slate-400', headerClass: 'text-slate-700 dark:text-slate-200', countClass: 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300', tasks: filteredTasks.value.filter(t => t.status === 'new') },
+	{ id: 'active', label: 'Em Andamento', dotClass: 'bg-blue-400', headerClass: 'text-blue-700 dark:text-blue-300', countClass: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300', tasks: filteredTasks.value.filter(t => t.status === 'active') },
+	{ id: 'completed', label: 'Concluído', dotClass: 'bg-green-400', headerClass: 'text-green-700 dark:text-green-300', countClass: 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300', tasks: filteredTasks.value.filter(t => t.status === 'completed') },
+])
+
+const groupTasksByUs = (tasks: Task[]) => {
+	const groups = new Map<string, Task[]>()
+	tasks.forEach(t => {
+		const key = t.usId || `_solo_${t.id}`
+		if (!groups.has(key)) groups.set(key, [])
+		groups.get(key)!.push(t)
+	})
+	return Array.from(groups.entries()).map(([key, items]) => ({
+		usId: key.startsWith('_solo_') ? '' : key,
+		tasks: items,
+	}))
+}
+
+const getSprintName = (sprintId: string): string => {
+	for (const squad of config.value.squads) {
+		const s = squad.sprints.find(sp => sp.id === sprintId)
+		if (s) return s.name
+	}
+	return ''
+}
+
+const typeColorClass = (type: string): string => {
+	const map: Record<string, string> = {
+		frontend: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+		backend: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+		qualidade: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+		other: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+	}
+	return map[type] || map.other
+}
+
+const typeLabel = (type: string): string =>
+	({ frontend: 'Front', backend: 'Back', qualidade: 'QA', other: 'Outro' } as Record<string, string>)[type] || type
+
+const jumpToToday = () => {
+	currentViewDate.value = startOfDay(new Date())
+	if (viewMode.value === 'project') setViewMode('month')
+}
+
+const jumpToProjectStart = () => {
+	const d = parseISO(config.value.projectStartDate)
+	if (isValid(d)) {
+		currentViewDate.value = startOfDay(d)
+		if (viewMode.value === 'project') setViewMode('month')
+	}
+}
+
+const jumpToCurrentSprint = () => {
+	const today = startOfDay(new Date())
+	const projectStart = parseISO(config.value.projectStartDate)
+	if (!isValid(projectStart)) return
+	const offsetDays = differenceInCalendarDays(today, projectStart)
+	if (offsetDays > 0 && ganttContainer.value) {
+		const scrollTarget = offsetDays * cellWidth.value - ganttContainer.value.clientWidth / 3
+		ganttContainer.value.scrollLeft = Math.max(0, scrollTarget)
+	}
+}
 
 const isDragging = ref(false)
 const draggingTaskId = ref<string | null>(null)
@@ -43,7 +174,7 @@ const showOptimizationModal = ref(false)
 const optimizationResults = ref<string[]>([])
 
 const handleOptimize = () => {
-	if (!tasksSnapshot.value) {
+	if (tasksSnapshotCount.value === 0) {
 		createSnapshot()
 	}
 	optimizationResults.value = getOptimizationSuggestions()
@@ -51,9 +182,7 @@ const handleOptimize = () => {
 }
 
 const handleUndo = () => {
-	if (confirm('Deseja descartar todas as alterações atuais e voltar para o ponto salvo?')) {
-		restoreSnapshot()
-	}
+	restoreSnapshot()
 }
 
 const handleCreateBackup = () => {
@@ -62,6 +191,11 @@ const handleCreateBackup = () => {
 
 const onTaskMouseDown = (e: MouseEvent, task: Task) => {
 	if (e.button !== 0 || viewMode.value === 'month') return
+	if (isTaskLocked(task)) {
+		// Locked tasks: click opens modal in read-only mode, no drag
+		setEditingTask(task)
+		return
+	}
 	e.stopPropagation()
 	isDragging.value = true
 	draggingTaskId.value = task.id
@@ -110,7 +244,7 @@ onMounted(() => {
 		resizeObserver.observe(ganttContainer.value)
 	}
 	nextTick(() => {
-		if (ganttContainer.value) ganttContainer.value.scrollLeft = 0
+		jumpToCurrentSprint()
 	})
 })
 onUnmounted(() => {
@@ -185,6 +319,24 @@ const groupedTasks = computed(() => {
 		groups[key].push(task)
 	})
 
+	if (groupBy.value === 'chain') {
+		const sorted: Task[] = []
+		const addedIds = new Set<string>()
+		const taskMap = new Map(filteredTasks.value.map(t => [t.id, t]))
+		const addChain = (task: Task) => {
+			if (addedIds.has(task.id)) return
+			if (task.dependencyId && taskMap.has(task.dependencyId) && !addedIds.has(task.dependencyId)) {
+				addChain(taskMap.get(task.dependencyId)!)
+			}
+			if (!addedIds.has(task.id)) {
+				addedIds.add(task.id)
+				sorted.push(task)
+			}
+		}
+		filteredTasks.value.forEach(t => addChain(t))
+		return [{ id: 'all', title: '', tasks: sorted }]
+	}
+
 	return Object.keys(groups)
 		.sort()
 		.map(key => ({
@@ -250,7 +402,7 @@ const timelineMonths = computed(() => {
 
 const dependencyLines = computed(() => {
 	const lines: { path: string; isCritical: boolean }[] = []
-	if (groupBy.value !== 'none') return []
+	if (groupBy.value !== 'none' && groupBy.value !== 'chain') return []
 
 	const taskMap = new Map<string, { index: number; task: Task }>()
 	filteredTasks.value.forEach((t, i) => taskMap.set(t.id, { index: i, task: t }))
@@ -318,7 +470,7 @@ const hideTooltip = () => {
 </script>
 
 <template>
-	<div class="bg-white dark:bg-slate-800 rounded-lg shadow overflow-hidden border border-slate-200 dark:border-slate-700 flex flex-col h-full select-none transition-colors duration-300">
+	<div class="relative bg-white dark:bg-slate-800 rounded-lg shadow overflow-hidden border border-slate-200 dark:border-slate-700 flex flex-col h-full select-none transition-colors duration-300">
 		<div class="p-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col gap-3 z-30 relative shadow-sm">
 			<div class="flex flex-col lg:flex-row justify-between items-start lg:items-center w-full gap-4">
 				<div class="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full lg:w-auto">
@@ -367,11 +519,22 @@ const hideTooltip = () => {
 					</div>
 				</div>
 
-				<div class="relative ml-auto z-30 flex items-center gap-3">
-					<div class="flex items-center bg-slate-100 dark:bg-slate-700 rounded-lg p-1 border border-slate-200 dark:border-slate-600">
-						<button @click="groupBy = 'none'" class="px-2 py-1 text-[10px] uppercase font-bold rounded" :class="groupBy === 'none' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'">Lista</button>
-						<button @click="groupBy = 'responsible'" class="px-2 py-1 text-[10px] uppercase font-bold rounded" :class="groupBy === 'responsible' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'">Pessoa</button>
-						<button @click="groupBy = 'sprint'" class="px-2 py-1 text-[10px] uppercase font-bold rounded" :class="groupBy === 'sprint' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'">Sprint</button>
+				<div class="relative z-30 flex items-center gap-2 flex-shrink-0 overflow-x-auto">
+					<div class="flex items-center bg-slate-100 dark:bg-slate-700 rounded-lg p-1 border border-slate-200 dark:border-slate-600 flex-shrink-0">
+						<button @click="viewLayout = 'gantt'; groupBy = 'none'" class="px-2 py-1 text-[10px] uppercase font-bold rounded flex items-center gap-1" :class="viewLayout === 'gantt' && groupBy === 'none' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'">
+							<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+							Lista
+						</button>
+						<button @click="viewLayout = 'gantt'; groupBy = 'responsible'" class="px-2 py-1 text-[10px] uppercase font-bold rounded" :class="viewLayout === 'gantt' && groupBy === 'responsible' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'">Pessoa</button>
+						<button @click="viewLayout = 'gantt'; groupBy = 'sprint'" class="px-2 py-1 text-[10px] uppercase font-bold rounded" :class="viewLayout === 'gantt' && groupBy === 'sprint' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'">Sprint</button>
+						<button @click="viewLayout = 'gantt'; groupBy = 'chain'" class="px-2 py-1 text-[10px] uppercase font-bold rounded flex items-center gap-1" :class="viewLayout === 'gantt' && groupBy === 'chain' ? 'bg-white dark:bg-slate-600 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 hover:text-slate-600'" title="Agrupa tarefas vinculadas próximas">
+							<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+							Fluxo
+						</button>
+						<button data-tour="board-btn" @click="viewLayout = 'board'; groupBy = 'none'" class="px-2 py-1 text-[10px] uppercase font-bold rounded flex items-center gap-1" :class="viewLayout === 'board' ? 'bg-indigo-600 shadow-sm text-white' : 'text-slate-400 hover:text-slate-600'" title="Visão estilo board (Kanban)">
+							<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
+							Board
+						</button>
 					</div>
 
 					<div class="flex items-center gap-1">
@@ -382,14 +545,19 @@ const hideTooltip = () => {
 						</button>
 
 						<button
-							v-if="tasksSnapshot"
+							v-if="tasksSnapshotCount > 0"
 							@click="handleUndo"
-							class="p-1.5 rounded-lg border transition-all text-xs font-bold bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800"
-							title="Desfazer Alterações (Restaurar Backup)"
+							class="flex items-center gap-1 p-1.5 rounded-lg border transition-all text-xs font-bold"
+							:class="isCascadeUndo
+								? 'bg-orange-100 text-orange-700 border-orange-300 hover:bg-orange-200 dark:bg-orange-900/40 dark:text-orange-300 dark:border-orange-700'
+								: 'bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800'"
+							:title="isCascadeUndo ? `Desfazer cascata (${cascadeUndoCount} tarefas afetadas)` : `Desfazer (${tasksSnapshotCount} passo(s))`"
 						>
 							<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
 							</svg>
+							<span v-if="isCascadeUndo" class="text-[10px] font-black whitespace-nowrap">cascata ({{ cascadeUndoCount }})</span>
+							<span v-else class="text-[10px] font-black">{{ tasksSnapshotCount }}</span>
 						</button>
 
 						<button @click="handleOptimize" class="flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-xs font-bold bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100">
@@ -440,6 +608,58 @@ const hideTooltip = () => {
 				</div>
 			</div>
 
+			<!-- Sprint close notification bar — full width, always visible when sprint is closeable -->
+			<Transition name="fade">
+				<div v-if="sprintsAwaitingClose.length > 0" class="flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg border"
+					:class="sprintsAwaitingClose.some(s => s.isPast)
+						? 'bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800'
+						: 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900'"
+				>
+					<span class="relative flex h-2 w-2 flex-shrink-0">
+						<span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+							:class="sprintsAwaitingClose.some(s => s.isPast) ? 'bg-amber-400' : 'bg-blue-400'"></span>
+						<span class="relative inline-flex rounded-full h-2 w-2"
+							:class="sprintsAwaitingClose.some(s => s.isPast) ? 'bg-amber-500' : 'bg-blue-500'"></span>
+					</span>
+					<p class="text-xs font-medium flex-1 min-w-0"
+						:class="sprintsAwaitingClose.some(s => s.isPast) ? 'text-amber-800 dark:text-amber-300' : 'text-blue-800 dark:text-blue-300'"
+					>
+						{{ sprintsAwaitingClose.length === 1
+							? `${sprintsAwaitingClose[0].name} — ${sprintsAwaitingClose[0].isPast ? 'encerramento pendente' : 'em andamento · pode ser encerrada'}`
+							: `${sprintsAwaitingClose.length} sprints disponíveis para encerramento` }}
+					</p>
+					<div class="flex gap-2 flex-shrink-0 flex-wrap">
+						<button
+							v-for="sp in sprintsAwaitingClose" :key="sp.id"
+							@click="openSprintClose(sp)"
+							class="flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg text-white transition-colors whitespace-nowrap"
+							:class="sp.isPast ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-500 hover:bg-blue-600'"
+						>
+							<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+							</svg>
+							{{ sprintsAwaitingClose.length > 1 ? sp.name : 'Encerrar Sprint' }}
+						</button>
+					</div>
+				</div>
+			</Transition>
+
+			<div v-if="viewLayout === 'gantt'" class="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-700 overflow-x-auto">
+				<label class="text-[9px] uppercase font-bold text-slate-400 tracking-wider whitespace-nowrap">Início do projeto:</label>
+				<input
+					type="date"
+					v-model="config.projectStartDate"
+					class="text-xs rounded border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200 h-7 px-2 dark:[color-scheme:dark] focus:ring-1 focus:ring-blue-400 outline-none cursor-pointer"
+				/>
+				<button @click="jumpToProjectStart" class="h-7 px-2.5 text-[10px] font-bold rounded border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors whitespace-nowrap flex items-center gap-1" title="Ir para início do projeto">
+					<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/></svg>
+					Início
+				</button>
+				<button @click="jumpToToday" class="h-7 px-2.5 text-[10px] font-bold rounded border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400 transition-colors whitespace-nowrap">
+					Hoje
+				</button>
+			</div>
+
 			<div class="flex flex-col lg:flex-row items-stretch lg:items-center gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
 				<div class="relative group flex-1 max-w-full lg:max-w-xs">
 					<div class="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
@@ -477,7 +697,76 @@ const hideTooltip = () => {
 			</div>
 		</div>
 
-		<div ref="ganttContainer" class="overflow-x-auto flex-1 relative custom-scrollbar bg-slate-50 dark:bg-slate-900/50">
+		<!-- Board View -->
+		<div v-if="viewLayout === 'board'" class="flex gap-4 p-4 overflow-x-auto flex-1 bg-slate-50 dark:bg-slate-900/50 custom-scrollbar">
+			<div v-for="col in boardColumns" :key="col.id" class="flex-shrink-0 w-72 flex flex-col gap-3">
+				<!-- Column header -->
+				<div class="flex items-center gap-2 px-1">
+					<span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :class="col.dotClass"></span>
+					<h3 class="font-bold text-sm" :class="col.headerClass">{{ col.label }}</h3>
+					<span class="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full" :class="col.countClass">{{ col.tasks.length }}</span>
+				</div>
+				<div class="h-0.5 w-full rounded-full" :class="{ 'bg-slate-200 dark:bg-slate-700': col.id === 'todo', 'bg-blue-200 dark:bg-blue-800': col.id === 'doing', 'bg-green-200 dark:bg-green-800': col.id === 'done' }"></div>
+
+				<!-- Task cards -->
+				<div class="space-y-2 flex-1 overflow-y-auto custom-scrollbar pr-1 pb-4">
+					<template v-for="group in groupTasksByUs(col.tasks)" :key="group.usId || (group.tasks[0] && group.tasks[0].id)">
+						<!-- US group: multiple tasks sharing the same usId -->
+						<div v-if="group.tasks.length > 1 && group.usId" class="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+							<div class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+								<span class="text-[9px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400">{{ group.usId }}</span>
+								<span class="text-[9px] text-slate-400">{{ group.tasks.length }} tarefas vinculadas</span>
+							</div>
+							<div class="divide-y divide-slate-100 dark:divide-slate-700/50">
+								<div
+									v-for="(task, ti) in group.tasks"
+									:key="task.id"
+									class="p-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors group/card"
+									@click="setEditingTask(task)"
+								>
+									<div class="flex items-center gap-2 mb-1.5">
+										<span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" :class="typeColorClass(task.type)">{{ typeLabel(task.type) }}</span>
+										<span v-if="ti > 0 && task.dependencyId" class="text-[9px] text-amber-500 flex items-center gap-0.5">
+											<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+										</span>
+										<div v-if="task.responsible" class="ml-auto w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0" :style="{ backgroundColor: task.color }">{{ getInitials(task.responsible) }}</div>
+									</div>
+									<p class="text-xs font-semibold text-slate-700 dark:text-slate-200 leading-tight">{{ task.name }}</p>
+								</div>
+							</div>
+						</div>
+
+						<!-- Single task card -->
+						<div
+							v-else
+							v-for="task in group.tasks"
+							:key="task.id"
+							class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 shadow-sm hover:shadow-md transition-all cursor-pointer group/card"
+							:style="{ borderTopColor: task.color, borderTopWidth: '3px' }"
+							@click="setEditingTask(task)"
+						>
+							<div class="flex items-center justify-between mb-2">
+								<span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" :class="typeColorClass(task.type)">{{ typeLabel(task.type) }}</span>
+								<span v-if="task.usId" class="text-[9px] text-slate-400 font-mono font-bold">{{ task.usId }}</span>
+							</div>
+							<p class="text-sm font-bold text-slate-800 dark:text-slate-100 mb-2 leading-tight">{{ task.name }}</p>
+							<div class="flex items-center gap-2 mt-1">
+								<span v-if="task.sprintId" class="text-[9px] text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded truncate max-w-[120px]">{{ getSprintName(task.sprintId) }}</span>
+								<span v-if="task.dependencyId" class="text-amber-500 flex items-center" title="Tem dependência">
+									<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+								</span>
+								<div v-if="task.responsible" class="ml-auto w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0" :style="{ backgroundColor: task.color }">{{ getInitials(task.responsible) }}</div>
+							</div>
+						</div>
+					</template>
+
+					<div v-if="col.tasks.length === 0" class="text-center py-10 text-slate-300 dark:text-slate-600 text-xs italic">Nenhuma tarefa</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Gantt View -->
+		<div v-else ref="ganttContainer" class="overflow-x-auto flex-1 relative custom-scrollbar bg-slate-50 dark:bg-slate-900/50">
 			<div :style="{ width: containerWidth + 'px' }" class="relative min-h-[400px]">
 				<div class="sticky top-0 z-20 shadow-sm">
 					<div class="flex bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 h-[25px] text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold">
@@ -541,10 +830,29 @@ const hideTooltip = () => {
 						/>
 					</svg>
 
+					<!-- Empty state educativo -->
+					<div v-if="filteredTasks.length === 0" class="flex flex-col items-center justify-center py-16 px-8 text-center sticky left-0">
+						<div class="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center mb-4">
+							<svg class="w-8 h-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
+						</div>
+						<h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Nenhuma tarefa ainda</h3>
+						<p class="text-xs text-slate-400 dark:text-slate-500 max-w-xs leading-relaxed mb-4">
+							Crie pelo menos 2 tarefas e vincule-as por dependência. Quando uma atrasar, as seguintes avançam automaticamente.
+						</p>
+						<div class="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-600 bg-slate-50 dark:bg-slate-800/60 px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
+							<svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+							<span>Tarefa A</span>
+							<svg class="w-3 h-3 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+							<span>Tarefa B</span>
+							<svg class="w-3 h-3 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+							<span>Tarefa C</span>
+						</div>
+					</div>
+
 					<div class="py-2 space-y-1 relative z-10">
 						<div v-for="group in groupedTasks" :key="group.id">
 							<div
-								v-if="groupBy !== 'none'"
+								v-if="groupBy !== 'none' && groupBy !== 'chain'"
 								class="sticky left-0 bg-slate-100/90 dark:bg-slate-800/90 backdrop-blur-sm border-y border-slate-200 dark:border-slate-700 px-4 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2 z-10 my-2"
 							>
 								<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
@@ -559,11 +867,14 @@ const hideTooltip = () => {
 									class="absolute h-7 rounded-md shadow-sm text-[11px] text-white flex items-center px-2 transition-all z-10 overflow-hidden"
 									:class="{
 										'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900': editingTask?.id === task.id,
-										'border-2 border-amber-400': isOverloaded(task),
+										'border-2 border-amber-400': isOverloaded(task) && !isTaskLocked(task),
 										'ring-2 ring-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)] z-20': showCriticalPath && criticalPathIds.includes(task.id),
 										'opacity-60': task.isCompleted,
+										'opacity-40 grayscale': isTaskLocked(task),
 										'shadow-lg scale-[1.02]': isDragging && draggingTaskId === task.id,
 										'rotate-45 !w-5 !h-5 !rounded-sm !p-0 justify-center ml-2.5': task.isMilestone,
+										'!cursor-default': isTaskLocked(task),
+										'!opacity-25 !grayscale': task.status === 'cancelled',
 									}"
 									@mousedown="e => onTaskMouseDown(e, task)"
 									@mouseenter="e => showTooltip(e, task)"
@@ -571,8 +882,9 @@ const hideTooltip = () => {
 									@mousemove="e => showTooltip(e, task)"
 									:style="getTaskStyle(task)"
 								>
-									<span v-if="!task.isMilestone" class="truncate font-medium drop-shadow-md flex items-center gap-1">
-										<span v-if="task.usId" class="font-bold opacity-80">[{{ task.usId }}]</span>
+									<div v-if="!task.isMilestone && (task.progress ?? 0) > 0" class="absolute bottom-0 left-0 h-1 rounded-b-md bg-white/40" :style="{ width: (task.progress ?? 0) + '%' }"></div>
+									<span v-if="!task.isMilestone && (task.calendarDuration || 1) * cellWidth >= 60" class="truncate font-medium drop-shadow-md flex items-center gap-1">
+										<span v-if="task.usId && (task.calendarDuration || 1) * cellWidth >= 90" class="font-bold opacity-80">[{{ task.usId }}]</span>
 										<span class="truncate">{{ task.name }}</span>
 										<span v-if="isOverloaded(task)">⚠️</span>
 									</span>
@@ -615,6 +927,19 @@ const hideTooltip = () => {
 											<div class="flex items-center justify-between text-[11px]">
 												<span class="text-slate-500 dark:text-slate-400">Período:</span>
 												<span class="font-bold text-blue-600 dark:text-blue-400">{{ tooltipData.task.formattedStartDate }} - {{ tooltipData.task.formattedEndDate }}</span>
+											</div>
+											<div v-if="!tooltipData.task.isMilestone" class="text-[11px]">
+												<div class="flex justify-between mb-1">
+													<span class="text-slate-500 dark:text-slate-400">Progresso:</span>
+													<span class="font-bold text-slate-700 dark:text-slate-200">{{ tooltipData.task.progress ?? 0 }}%</span>
+												</div>
+												<div class="w-full bg-slate-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+													<div
+														class="h-full rounded-full transition-all"
+														:class="(tooltipData.task.progress ?? 0) === 100 ? 'bg-green-500' : 'bg-blue-500'"
+														:style="{ width: (tooltipData.task.progress ?? 0) + '%' }"
+													></div>
+												</div>
 											</div>
 										</div>
 
@@ -665,7 +990,50 @@ const hideTooltip = () => {
 				</div>
 			</div>
 		</div>
+
+		<!-- Cascade feedback panel -->
+		<Transition name="cascade-slide">
+			<div
+				v-if="cascadePanel.length > 0"
+				class="absolute bottom-0 left-0 right-0 z-30 bg-amber-50 dark:bg-amber-950/95 border-t border-amber-200 dark:border-amber-800 px-4 py-2.5 flex items-center gap-3 shadow-lg"
+			>
+				<svg class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+				</svg>
+				<span class="text-xs text-amber-800 dark:text-amber-200 font-medium flex-1 min-w-0">
+					<span class="font-bold">Cascata:</span>
+					<template v-for="(t, idx) in cascadePanel.slice(0, 3)" :key="t.id">
+						<button
+							@click="setEditingTask(filteredTasks.find(ft => ft.id === t.id) ?? filteredTasks[0])"
+							class="underline mx-1 font-semibold hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+						>{{ t.name }}</button>
+						<span class="text-amber-600 dark:text-amber-400 font-bold">{{ t.deltaDays > 0 ? '+' : '' }}{{ t.deltaDays }}d</span>
+						<span v-if="idx < Math.min(cascadePanel.length, 3) - 1" class="mx-0.5">·</span>
+					</template>
+					<span v-if="cascadePanel.length > 3" class="text-amber-600 dark:text-amber-500 ml-1">+{{ cascadePanel.length - 3 }} tarefas</span>
+				</span>
+				<button
+					@click="handleUndo(); dismissCascadePanel()"
+					class="flex-shrink-0 text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/60 hover:bg-amber-200 dark:hover:bg-amber-800 px-2.5 py-1 rounded-lg border border-amber-300 dark:border-amber-700 transition-colors whitespace-nowrap"
+				>
+					↩ Desfazer
+				</button>
+				<button @click="dismissCascadePanel" class="flex-shrink-0 text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-200 transition-colors p-0.5">
+					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+				</button>
+			</div>
+		</Transition>
 	</div>
+
+	<!-- Sprint Close Modal -->
+	<SprintCloseModal
+		:open="showSprintCloseModal"
+		:sprint="sprintToClose"
+		:tasks="sprintTasksToClose"
+		:future-sprints-for-squad="futureSprintsForClose"
+		@confirm="handleSprintCloseConfirm"
+		@cancel="handleSprintCloseCancel"
+	/>
 </template>
 
 <style scoped>
@@ -693,13 +1061,16 @@ const hideTooltip = () => {
 	animation: fadeIn 0.2s ease-out;
 }
 @keyframes fadeIn {
-	from {
-		opacity: 0;
-		transform: translateY(5px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
+	from { opacity: 0; transform: translateY(5px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+.cascade-slide-enter-active,
+.cascade-slide-leave-active {
+	transition: transform 0.25s ease, opacity 0.25s ease;
+}
+.cascade-slide-enter-from,
+.cascade-slide-leave-to {
+	transform: translateY(100%);
+	opacity: 0;
 }
 </style>

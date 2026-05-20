@@ -27,8 +27,10 @@ const handleFileChange = async (event: Event) => {
 				toast.show('Nenhuma tarefa encontrada no arquivo.', 'error')
 			}
 		} catch (error) {
+			const msg = error instanceof Error ? error.message : 'Erro desconhecido'
+			const friendlyMsg = msg.includes(':') ? msg.split(':').slice(1).join(':').trim() : msg
 			console.error(error)
-			toast.show('Erro ao ler o arquivo Excel. Verifique se as abas "Tarefas" e "Squads" existem.', 'error')
+			toast.show(friendlyMsg, 'error')
 		} finally {
 			target.value = ''
 		}

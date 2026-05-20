@@ -22,6 +22,8 @@ const sprintForm = ref({
 
 const newHolidayDate = ref('')
 const editingMemberIndex = ref<number | null>(null)
+const savedIndicator = ref(false)
+let saveTimer: ReturnType<typeof setTimeout> | null = null
 const memberDayOffInput = ref('')
 const memberCapacityInput = ref(8)
 
@@ -74,6 +76,9 @@ const sprintMetrics = computed(() => {
 const saveSprintChanges = () => {
 	if (selectedSquadId.value && selectedSprintId.value) {
 		updateSprintInSquad(selectedSquadId.value, selectedSprintId.value, { ...sprintForm.value })
+		savedIndicator.value = true
+		if (saveTimer) clearTimeout(saveTimer)
+		saveTimer = setTimeout(() => { savedIndicator.value = false }, 2000)
 	}
 }
 
@@ -148,6 +153,12 @@ const formatDateBr = (isoDate: string) => (isoDate ? format(parseISO(isoDate), '
 					<h3 class="font-bold text-lg text-slate-800 dark:text-slate-100 mb-6 flex items-center gap-2 border-b border-slate-100 dark:border-slate-700 pb-4">
 						<span class="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg text-blue-600 dark:text-blue-400 text-xl">📅</span>
 						Período da Sprint
+						<Transition name="fade">
+							<span v-if="savedIndicator" class="ml-auto text-xs text-green-500 font-semibold flex items-center gap-1">
+								<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+								Salvo
+							</span>
+						</Transition>
 					</h3>
 
 					<div class="grid grid-cols-2 gap-6 mb-8">
@@ -329,6 +340,9 @@ const formatDateBr = (isoDate: string) => (isoDate ? format(parseISO(isoDate), '
 		transform: translateY(0);
 	}
 }
+
+.fade-enter-active, .fade-leave-active { transition: opacity 0.4s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 
 /* Garante que o calendário cubra toda a área clicável no Safari/Chrome mobile */
 input[type='date'] {

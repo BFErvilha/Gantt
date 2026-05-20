@@ -7,18 +7,25 @@ const { tasks, config, automaticRisks, computedTasks } = useGantt()
 
 const dashboardSquadFilter = ref('')
 
+const isTaskInSquad = (t: ReturnType<typeof tasks.value>[number], squadId: string): boolean => {
+	if (!squadId) return true
+	if (t.sprintId) {
+		const squad = config.value.squads.find(s => s.sprints.some(sp => sp.id === t.sprintId))
+		if (squad) return squad.id === squadId
+	}
+	const member = config.value.teamMembers.find(m => m.name === t.responsible)
+	return !!member?.squadIds.includes(squadId)
+}
+
 const totalTasks = computed(() => {
 	if (!dashboardSquadFilter.value) return tasks.value.length
-	return tasks.value.filter(t => {
-		const member = config.value.teamMembers.find(m => m.name === t.responsible)
-		return member?.squadIds.includes(dashboardSquadFilter.value)
-	}).length
+	return tasks.value.filter(t => isTaskInSquad(t, dashboardSquadFilter.value)).length
 })
 
 const timeProgress = computed(() => {
 	const squad = config.value.squads.find(s => s.id === dashboardSquadFilter.value)
-	const startStr = dashboardSquadFilter.value ? squad?.startDate : config.value.projectStartDate
-	const endStr = dashboardSquadFilter.value ? squad?.deadline : config.value.deadline
+	const startStr = dashboardSquadFilter.value ? (squad?.startDate || config.value.projectStartDate) : config.value.projectStartDate
+	const endStr = dashboardSquadFilter.value ? (squad?.deadline || config.value.deadline) : config.value.deadline
 
 	if (!startStr || !endStr) return 0
 
@@ -37,10 +44,7 @@ const timeProgress = computed(() => {
 
 const completedStats = computed(() => {
 	const source = dashboardSquadFilter.value
-		? computedTasks.value.filter(t => {
-				const member = config.value.teamMembers.find(m => m.name === t.responsible)
-				return member?.squadIds.includes(dashboardSquadFilter.value)
-		  })
+		? computedTasks.value.filter(t => isTaskInSquad(t, dashboardSquadFilter.value))
 		: computedTasks.value
 
 	const completed = source.filter(t => t.isCompleted)
@@ -60,10 +64,7 @@ const completedStats = computed(() => {
 
 const notPlannedStats = computed(() => {
 	const source = dashboardSquadFilter.value
-		? tasks.value.filter(t => {
-				const member = config.value.teamMembers.find(m => m.name === t.responsible)
-				return member?.squadIds.includes(dashboardSquadFilter.value)
-		  })
+		? tasks.value.filter(t => isTaskInSquad(t, dashboardSquadFilter.value))
 		: tasks.value
 
 	const notPlanned = source.filter(t => t.isNotPlanned)
@@ -111,10 +112,7 @@ const teamWorkload = computed(() => {
 
 const tasksByType = computed(() => {
 	const source = dashboardSquadFilter.value
-		? tasks.value.filter(t => {
-				const member = config.value.teamMembers.find(m => m.name === t.responsible)
-				return member?.squadIds.includes(dashboardSquadFilter.value)
-		  })
+		? tasks.value.filter(t => isTaskInSquad(t, dashboardSquadFilter.value))
 		: tasks.value
 
 	const types = { frontend: 0, backend: 0, qualidade: 0, other: 0 }
@@ -143,10 +141,7 @@ const sectorCapacityStats = computed(() => {
 
 const baselineStats = computed(() => {
 	const source = dashboardSquadFilter.value
-		? computedTasks.value.filter(t => {
-				const member = config.value.teamMembers.find(m => m.name === t.responsible)
-				return member?.squadIds.includes(dashboardSquadFilter.value)
-		  })
+		? computedTasks.value.filter(t => isTaskInSquad(t, dashboardSquadFilter.value))
 		: computedTasks.value
 
 	const delayedTasks: any[] = []

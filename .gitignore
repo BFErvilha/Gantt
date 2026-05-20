@@ -46,3 +46,5 @@ src-sw.js
 sw.js
 workbox-*.js
 worker-*.js
+
+.claude

@@ -1,9 +1,24 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
-import { useGantt, type Task } from '@/composables/useGantt'
+import { ref, watch, computed, onMounted } from 'vue'
+import { useGantt, type Task, type TaskStatus } from '@/composables/useGantt'
 import ConfirmationModal from './ConfirmationModal.vue'
 
-const { tasks, addTask, editingTask, updateTask, cancelEditing, removeTask, toggleTaskCompletion, config, isTaskModalOpen, allSprints } = useGantt()
+const { tasks, addTask, editingTask, updateTask, cancelEditing, removeTask, setTaskStatus, toggleTaskCompletion, config, isTaskModalOpen, allSprints, duplicateTask, hasCyclicDependency, isTaskLocked, isSprintClosed } = useGantt()
+
+// Read-only lock state for tasks in closed sprints
+const isLockedTask = computed(() => !!editingTask.value && isTaskLocked(editingTask.value))
+const isLockedOverride = ref(false)
+const isEffectivelyReadOnly = computed(() => isLockedTask.value && !isLockedOverride.value)
+
+const lockedSprintName = computed(() => {
+	if (!editingTask.value?.sprintId) return ''
+	const sprint = allSprints.value.find(s => s.id === editingTask.value!.sprintId)
+	return sprint?.name ?? ''
+})
+
+watch(editingTask, () => {
+	isLockedOverride.value = false
+})
 
 const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
 
@@ -17,6 +32,7 @@ const defaultFormState = {
 	type: 'frontend' as Task['type'],
 	responsible: '',
 	effort: 0,
+	status: 'new' as TaskStatus,
 	sprintId: '',
 	squadId: '',
 	isMilestone: false,
@@ -43,6 +59,28 @@ const flowState = ref({
 const isDeleteModalOpen = ref(false)
 const isCompleteModalOpen = ref(false)
 
+const DEPT_HINT_KEY = 'gantt-ficator-dep-hint-seen'
+const showDependencyHint = ref(false)
+const dependencyHintDismissed = ref(false)
+
+onMounted(() => {
+	dependencyHintDismissed.value = !!localStorage.getItem(DEPT_HINT_KEY)
+})
+
+const onDependencyFocus = () => {
+	if (!dependencyHintDismissed.value) showDependencyHint.value = true
+}
+const dismissDependencyHint = (permanent = false) => {
+	showDependencyHint.value = false
+	if (permanent) {
+		dependencyHintDismissed.value = true
+		localStorage.setItem(DEPT_HINT_KEY, 'true')
+	}
+}
+
+const sectionRelOpen = ref(false)
+const sectionVisOpen = ref(false)
+
 watch(editingTask, newTask => {
 	if (newTask) {
 		isFlowMode.value = false
@@ -63,6 +101,7 @@ watch(editingTask, newTask => {
 			type: newTask.type || 'other',
 			responsible: newTask.responsible || '',
 			effort: newTask.effort || 0,
+			status: (newTask.status as TaskStatus) || 'new',
 			sprintId: newTask.sprintId || '',
 			squadId: squadId,
 			isMilestone: newTask.isMilestone || false,
@@ -106,6 +145,21 @@ const currentFormId = computed(() => {
 	if (!editingTask.value && isFlowMode.value) return 'flow-form'
 	return 'simple-form'
 })
+
+const dependencyCycleWarning = computed(() => {
+	if (!formState.value.dependencyId || !editingTask.value) return null
+	if (hasCyclicDependency(editingTask.value.id, formState.value.dependencyId)) {
+		return 'Esta dependência cria um ciclo e será ignorada no cálculo de datas.'
+	}
+	return null
+})
+
+const handleDuplicate = () => {
+	if (editingTask.value) {
+		duplicateTask(editingTask.value.id)
+		cancelEditing()
+	}
+}
 
 watch(
 	() => formState.value.sprintId,
@@ -224,6 +278,7 @@ const submitSimple = () => {
 			type: formState.value.type,
 			responsible: formState.value.responsible,
 			effort: formState.value.effort,
+			status: formState.value.status,
 			sprintId: formState.value.sprintId || undefined,
 			isMilestone: formState.value.isMilestone,
 			usType: formState.value.usType,
@@ -330,7 +385,8 @@ const requestCompletion = () => {
 }
 const confirmCompletion = () => {
 	if (editingTask.value) {
-		toggleTaskCompletion(editingTask.value.id)
+		const next: TaskStatus = editingTask.value.status === 'completed' ? 'new' : 'completed'
+		setTaskStatus(editingTask.value.id, next)
 		isCompleteModalOpen.value = false
 		cancelEditing()
 	}
@@ -340,7 +396,7 @@ const confirmCompletion = () => {
 <template>
 	<Transition name="slide">
 		<div v-if="isTaskModalOpen" class="fixed inset-0 z-50 flex justify-end overflow-hidden">
-			<div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="handleCancel"></div>
+			<div class="absolute inset-0 bg-black/30 transition-opacity" @click="handleCancel"></div>
 
 			<div class="relative w-full max-w-xl h-full bg-white dark:bg-slate-900 shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800 transition-all duration-300 ease-out transform">
 				<div class="flex-shrink-0 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex items-center justify-between z-10">
@@ -351,6 +407,30 @@ const confirmCompletion = () => {
 						<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
 					</button>
 				</div>
+
+				<!-- Locked sprint banner -->
+				<Transition name="fade">
+					<div v-if="isLockedTask" class="flex-shrink-0 px-6 py-3 bg-amber-50 dark:bg-amber-950/60 border-b border-amber-200 dark:border-amber-800 flex items-center justify-between gap-3">
+						<div class="flex items-center gap-2 min-w-0">
+							<svg class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+							</svg>
+							<p class="text-xs text-amber-800 dark:text-amber-300 font-medium truncate">
+								Sprint encerrada<span v-if="lockedSprintName"> — <span class="font-bold">{{ lockedSprintName }}</span></span>. Somente leitura.
+							</p>
+						</div>
+						<button
+							v-if="!isLockedOverride"
+							@click="isLockedOverride = true"
+							class="flex-shrink-0 text-xs font-bold text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline whitespace-nowrap transition-colors"
+						>
+							Editar mesmo assim
+						</button>
+						<span v-else class="flex-shrink-0 text-xs font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
+							Modo edição ativo
+						</span>
+					</div>
+				</Transition>
 
 				<div v-if="!editingTask" class="px-6 pt-4 bg-white dark:bg-slate-900 flex-shrink-0">
 					<div class="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
@@ -490,7 +570,9 @@ const confirmCompletion = () => {
 						</div>
 					</form>
 
-					<form v-else id="simple-form" @submit.prevent="submitSimple" class="space-y-6 animate-fade-in">
+					<form v-else id="simple-form" @submit.prevent="submitSimple" class="space-y-5 animate-fade-in" :class="{ 'pointer-events-none opacity-60 select-none': isEffectivelyReadOnly }">
+
+						<!-- ── CAMADA 1: ESSENCIAL ───────────────────────────── -->
 						<div>
 							<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Squad</label>
 							<select v-model="formState.squadId" class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 text-sm dark:bg-slate-800 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none">
@@ -499,29 +581,8 @@ const confirmCompletion = () => {
 							</select>
 						</div>
 
-						<div class="grid grid-cols-2 gap-5">
-							<div>
-								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">ID da US</label>
-								<input
-									v-model="formState.usId"
-									type="text"
-									placeholder="Ex: US-104"
-									class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium transition-colors"
-								/>
-							</div>
-							<div>
-								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">ID da Tarefa</label>
-								<input
-									v-model="formState.customId"
-									type="text"
-									placeholder="Ex: T-01"
-									class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium transition-colors"
-								/>
-							</div>
-						</div>
-
 						<div>
-							<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Nome da Tarefa</label>
+							<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Nome da Tarefa *</label>
 							<input
 								v-model="formState.name"
 								type="text"
@@ -532,51 +593,15 @@ const confirmCompletion = () => {
 							/>
 						</div>
 
-						<div class="grid grid-cols-2 gap-5 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700">
-							<div>
-								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">Prioridade da US</label>
-								<div class="flex gap-2">
-									<label class="flex-1 cursor-pointer relative">
-										<input type="radio" v-model="formState.usType" value="goal" class="peer sr-only" />
-										<div
-											class="text-center py-2.5 px-3 rounded-lg border border-slate-200 dark:border-slate-600 peer-checked:bg-amber-100 peer-checked:text-amber-800 peer-checked:border-amber-300 dark:peer-checked:bg-amber-900/40 dark:peer-checked:text-amber-200 dark:text-slate-300 transition-all text-sm font-bold shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700"
-										>
-											🏆 Meta
-										</div>
-									</label>
-									<label class="flex-1 cursor-pointer relative">
-										<input type="radio" v-model="formState.usType" value="item" class="peer sr-only" />
-										<div
-											class="text-center py-2.5 px-3 rounded-lg border border-slate-200 dark:border-slate-600 peer-checked:bg-slate-200 peer-checked:text-slate-800 dark:peer-checked:bg-slate-600 dark:peer-checked:text-white dark:text-slate-300 transition-all text-sm font-bold shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700"
-										>
-											📝 Item
-										</div>
-									</label>
-								</div>
-							</div>
-							<div>
-								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">Classificação</label>
-								<input
-									v-model.number="formState.classification"
-									type="number"
-									placeholder="0"
-									class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium transition-colors"
-								/>
-							</div>
-						</div>
-
 						<div class="flex items-center gap-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-100 dark:border-indigo-900/30">
-							<input type="checkbox" id="isMilestone" v-model="formState.isMilestone" class="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 border-indigo-200" />
-							<label for="isMilestone" class="text-sm font-bold text-indigo-800 dark:text-indigo-200 cursor-pointer select-none"> 🚩 É um Marco (Milestone)?</label>
+							<input type="checkbox" id="isMilestone" v-model="formState.isMilestone" class="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-indigo-200" />
+							<label for="isMilestone" class="text-sm font-semibold text-indigo-800 dark:text-indigo-200 cursor-pointer select-none">Marco (Milestone)</label>
 						</div>
 
-						<div class="grid grid-cols-2 gap-5" v-if="!formState.isMilestone">
+						<div v-if="!formState.isMilestone" class="grid grid-cols-2 gap-4">
 							<div>
-								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Tipo da Tarefa</label>
-								<select
-									v-model="formState.type"
-									class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium transition-colors"
-								>
+								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Tipo</label>
+								<select v-model="formState.type" class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium">
 									<option value="frontend">Front-end</option>
 									<option value="backend">Back-end</option>
 									<option value="qualidade">Qualidade</option>
@@ -584,110 +609,149 @@ const confirmCompletion = () => {
 								</select>
 							</div>
 							<div>
-								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase">Cor da Barra</label>
-								<div class="flex gap-2">
-									<button
-										type="button"
-										v-for="c in colors"
-										:key="c"
-										@click="formState.color = c"
-										class="w-9 h-9 rounded-full border-2 transition-transform hover:scale-110 shadow-sm flex items-center justify-center"
-										:class="formState.color === c ? 'border-slate-800 dark:border-white scale-110 ring-2 ring-offset-2 ring-offset-white dark:ring-offset-slate-900 ring-slate-300' : 'border-transparent'"
-										:style="{ backgroundColor: c }"
-									>
-										<svg v-if="formState.color === c" class="w-4 h-4 text-white drop-shadow-md" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
-									</button>
-								</div>
-							</div>
-						</div>
-
-						<hr class="border-slate-100 dark:border-slate-700" />
-
-						<div>
-							<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Sprint (Opcional)</label>
-							<select
-								v-model="formState.sprintId"
-								class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-purple-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium transition-colors"
-								:disabled="!formState.squadId"
-							>
-								<option value="">-- Sem Sprint (Não Planejado) --</option>
-								<option v-for="s in availableSprintsSimple" :key="s.id" :value="s.id">{{ s.name }}</option>
-							</select>
-							<div v-if="selectedSprintSquad" class="text-xs text-indigo-500 dark:text-indigo-400 mt-2 font-bold flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/20 p-2 rounded border border-indigo-100 dark:border-indigo-800">
-								<span class="w-2 h-2 rounded-full bg-indigo-500"></span>
-								Restrito à Squad: {{ selectedSprintSquad.name }}
-							</div>
-						</div>
-
-						<div class="grid grid-cols-2 gap-5">
-							<div v-if="!formState.isMilestone">
 								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Responsável</label>
-								<select
-									v-model="formState.responsible"
-									class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium transition-colors"
-									:disabled="!formState.squadId"
-								>
+								<select v-model="formState.responsible" :disabled="!formState.squadId" class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium">
 									<option value="">-- Selecione --</option>
-									<option v-for="member in filteredMembersSimple" :key="member.name" :value="member.name">{{ member.name }} ({{ member.sector || 'Geral' }})</option>
+									<option v-for="member in filteredMembersSimple" :key="member.name" :value="member.name">{{ member.name }}</option>
 								</select>
 								<div v-if="!formState.squadId" class="text-[10px] text-red-400 mt-1">Selecione uma Squad primeiro</div>
+								<div v-else-if="formState.type && formState.type !== 'other'" class="text-[10px] text-slate-400 mt-1">Filtrado por tipo</div>
+							</div>
+						</div>
+
+						<div class="grid grid-cols-2 gap-4">
+							<div>
+								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Sprint</label>
+								<select v-model="formState.sprintId" :disabled="!formState.squadId" class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-purple-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium">
+									<option value="">-- Não Planejado --</option>
+									<option v-for="s in availableSprintsSimple" :key="s.id" :value="s.id">{{ s.name }}</option>
+								</select>
 							</div>
 							<div v-if="!formState.isMilestone">
-								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Esforço Estimado</label>
+								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Esforço</label>
 								<div class="relative">
-									<input
-										v-model.number="formState.effort"
-										type="number"
-										min="0"
-										class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm pr-12 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium transition-colors"
-									/>
-									<span class="absolute right-3 top-2.5 text-xs text-slate-400 dark:text-slate-500 font-bold">HORAS</span>
+									<input v-model.number="formState.effort" type="number" min="0" class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm pr-12 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium" />
+									<span class="absolute right-3 top-2.5 text-[10px] text-slate-400 font-bold">HRS</span>
 								</div>
 							</div>
 						</div>
 
-						<div class="grid grid-cols-2 gap-5" v-if="!formState.isMilestone">
-							<div>
-								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Duração (Dias)</label>
-								<div class="relative">
-									<input
-										v-model.number="formState.duration"
-										type="number"
-										min="1"
-										class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-200 text-sm pr-10 transition-colors font-medium cursor-not-allowed"
-										title="Calculado automaticamente baseado no esforço e capacidade"
-										readonly
-									/>
-									<span class="absolute right-3 top-2.5 text-xs text-slate-400 dark:text-slate-400 font-bold">DIAS</span>
-								</div>
-							</div>
-							<div>
-								<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Dependência</label>
-								<select
-									v-model="formState.dependencyId"
-									class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium transition-colors"
+						<div v-if="!formState.isMilestone">
+							<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Cor da Barra</label>
+							<div class="flex gap-2">
+								<button type="button" v-for="c in colors" :key="c" @click="formState.color = c"
+									class="w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 shadow-sm flex items-center justify-center"
+									:class="formState.color === c ? 'border-slate-800 dark:border-white scale-110 ring-2 ring-offset-1 ring-slate-300' : 'border-transparent'"
+									:style="{ backgroundColor: c }"
 								>
-									<option value="">Nenhuma</option>
-									<option v-for="t in tasks" :key="t.id" :value="t.id" v-show="!editingTask || t.id !== editingTask.id">{{ t.name }}</option>
-								</select>
+									<svg v-if="formState.color === c" class="w-3.5 h-3.5 text-white drop-shadow-md" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
+								</button>
 							</div>
-						</div>
-						<div v-else>
-							<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Dependência (Define a data do Marco)</label>
-							<select
-								v-model="formState.dependencyId"
-								class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium transition-colors"
-							>
-								<option value="">Nenhuma (Início do Projeto)</option>
-								<option v-for="t in tasks" :key="t.id" :value="t.id" v-show="!editingTask || t.id !== editingTask.id">{{ t.name }}</option>
-							</select>
 						</div>
 
 						<div v-if="capacityAlertSimple" class="text-xs font-medium text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/40 p-3 rounded-lg border border-amber-200 dark:border-amber-800 flex items-start gap-2">
-							<svg class="h-5 w-5 flex-shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-							</svg>
+							<svg class="h-4 w-4 flex-shrink-0 text-amber-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
 							<span>{{ capacityAlertSimple }}</span>
+						</div>
+
+						<!-- ── CAMADA 2: RELACIONAL ──────────────────────────── -->
+						<div class="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+							<button
+								type="button"
+								@click="sectionRelOpen = !sectionRelOpen"
+								class="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/60 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+							>
+								<span class="flex items-center gap-2">
+									<svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+									Dependências &amp; Contexto
+									<span v-if="formState.dependencyId || formState.usId" class="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+								</span>
+								<svg class="w-4 h-4 transition-transform duration-200" :class="sectionRelOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+							</button>
+
+							<div v-show="sectionRelOpen" class="px-4 py-4 space-y-4">
+								<div class="grid grid-cols-2 gap-4">
+									<div>
+										<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">ID da US</label>
+										<input v-model="formState.usId" type="text" placeholder="Ex: US-104" class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium" />
+									</div>
+									<div>
+										<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">ID da Tarefa</label>
+										<input v-model="formState.customId" type="text" placeholder="Ex: T-01" class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium" />
+									</div>
+								</div>
+
+								<!-- Dependency field com JIT hint -->
+								<div class="relative">
+									<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">
+										{{ formState.isMilestone ? 'Dependência (define data do marco)' : 'Tarefa predecessora' }}
+									</label>
+									<select
+										v-model="formState.dependencyId"
+										@focus="onDependencyFocus"
+										@blur="dismissDependencyHint(false)"
+										class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+									>
+										<option value="">{{ formState.isMilestone ? 'Nenhuma (Início do Projeto)' : 'Nenhuma' }}</option>
+										<option v-for="t in tasks" :key="t.id" :value="t.id" v-show="!editingTask || t.id !== editingTask.id">{{ t.name }}</option>
+									</select>
+
+									<!-- JIT hint popover -->
+									<Transition name="hint-fade">
+										<div v-if="showDependencyHint" class="absolute left-0 right-0 top-full mt-1 z-20 bg-indigo-950 text-indigo-100 text-xs rounded-lg p-3 shadow-xl border border-indigo-800 flex items-start gap-2">
+											<svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+											<span class="flex-1 leading-relaxed">Quando a predecessora atrasar, esta tarefa avança automaticamente — <strong>efeito cascata</strong>.</span>
+											<button type="button" @mousedown.prevent="dismissDependencyHint(true)" class="text-indigo-400 hover:text-white transition-colors ml-1 flex-shrink-0 text-[10px] underline">não mostrar</button>
+										</div>
+									</Transition>
+								</div>
+
+								<div v-if="dependencyCycleWarning" class="text-xs font-medium text-orange-800 dark:text-orange-200 bg-orange-50 dark:bg-orange-900/40 p-3 rounded-lg border border-orange-200 dark:border-orange-800 flex items-start gap-2">
+									<svg class="h-4 w-4 flex-shrink-0 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+									<span>{{ dependencyCycleWarning }}</span>
+								</div>
+
+								<div>
+									<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase">Status</label>
+									<div class="flex gap-1.5">
+										<button type="button" @click="formState.status = 'new'"
+											class="flex-1 py-2 text-xs font-bold rounded-lg border transition-all"
+											:class="formState.status === 'new' ? 'bg-slate-200 dark:bg-slate-600 border-slate-400 dark:border-slate-500 text-slate-800 dark:text-white' : 'border-slate-200 dark:border-slate-600 text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700'">
+											Novo
+										</button>
+										<button type="button" @click="formState.status = 'active'"
+											class="flex-1 py-2 text-xs font-bold rounded-lg border transition-all"
+											:class="formState.status === 'active' ? 'bg-blue-100 dark:bg-blue-900/40 border-blue-400 dark:border-blue-600 text-blue-800 dark:text-blue-200' : 'border-slate-200 dark:border-slate-600 text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700'">
+											Ativo
+										</button>
+										<button type="button" @click="formState.status = 'completed'"
+											class="flex-1 py-2 text-xs font-bold rounded-lg border transition-all"
+											:class="formState.status === 'completed' ? 'bg-green-100 dark:bg-green-900/40 border-green-400 dark:border-green-600 text-green-800 dark:text-green-200' : 'border-slate-200 dark:border-slate-600 text-slate-400 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700'">
+											Concluído
+										</button>
+									</div>
+								</div>
+
+								<div class="grid grid-cols-2 gap-4 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-slate-700">
+									<div>
+										<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">Prioridade</label>
+										<div class="flex gap-1.5">
+											<label class="flex-1 cursor-pointer">
+												<input type="radio" v-model="formState.usType" value="goal" class="peer sr-only" />
+												<div class="text-center py-2 px-1 rounded-lg border border-slate-200 dark:border-slate-600 peer-checked:bg-amber-100 peer-checked:text-amber-800 peer-checked:border-amber-300 dark:peer-checked:bg-amber-900/40 dark:peer-checked:text-amber-200 dark:text-slate-300 transition-all text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700">Meta</div>
+											</label>
+											<label class="flex-1 cursor-pointer">
+												<input type="radio" v-model="formState.usType" value="item" class="peer sr-only" />
+												<div class="text-center py-2 px-1 rounded-lg border border-slate-200 dark:border-slate-600 peer-checked:bg-slate-200 peer-checked:text-slate-800 dark:peer-checked:bg-slate-600 dark:peer-checked:text-white dark:text-slate-300 transition-all text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700">Item</div>
+											</label>
+										</div>
+									</div>
+									<div>
+										<label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">Classificação</label>
+										<input v-model.number="formState.classification" type="number" placeholder="0" class="w-full rounded-lg border-slate-300 dark:border-slate-600 shadow-sm p-2.5 border focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium" />
+									</div>
+								</div>
+							</div>
 						</div>
 					</form>
 				</div>
@@ -695,7 +759,15 @@ const confirmCompletion = () => {
 				<div class="flex-shrink-0 border-t border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950 z-20 flex flex-col gap-3">
 					<div class="flex gap-3">
 						<button type="button" @click="handleCancel" class="px-5 py-3 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition text-sm w-1/3">Cancelar</button>
-						<button type="submit" :form="currentFormId" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg font-bold shadow-lg shadow-blue-200 dark:shadow-none text-sm transition-colors">
+						<button
+							type="submit"
+							:form="currentFormId"
+							:disabled="isEffectivelyReadOnly"
+							class="flex-1 py-3 px-4 rounded-lg font-bold text-sm transition-colors shadow-lg"
+							:class="isEffectivelyReadOnly
+								? 'bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed shadow-none'
+								: 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200 dark:shadow-none'"
+						>
 							{{ editingTask ? 'Salvar Alterações' : 'Criar Tarefa' }}
 						</button>
 					</div>
@@ -714,19 +786,30 @@ const confirmCompletion = () => {
 
 						<button
 							type="button"
+							@click="handleDuplicate"
+							class="flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700 rounded text-slate-500 hover:text-slate-700 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800"
+						>
+							<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+							</svg>
+							Duplicar
+						</button>
+
+						<button
+							type="button"
 							@click="requestCompletion"
 							class="flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1 transition-colors border border-transparent rounded"
 							:class="
-								editingTask.isCompleted
+								editingTask.status === 'completed'
 									? 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-700'
 									: 'text-green-600 hover:text-green-700 hover:bg-green-50 dark:text-green-400 dark:hover:text-green-300 dark:hover:bg-green-900/30'
 							"
 						>
-							<svg v-if="!editingTask.isCompleted" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+							<svg v-if="editingTask.status !== 'completed'" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
 							<svg v-else class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
 							</svg>
-							{{ editingTask.isCompleted ? 'Reabrir' : 'Concluir' }}
+							{{ editingTask.status === 'completed' ? 'Reabrir' : 'Concluir' }}
 						</button>
 					</div>
 				</div>
@@ -735,8 +818,8 @@ const confirmCompletion = () => {
 			<ConfirmationModal :is-open="isDeleteModalOpen" title="Excluir Tarefa" :message="`Tem a certeza que deseja excluir a tarefa '${editingTask?.name}'?`" @confirm="confirmDelete" @cancel="isDeleteModalOpen = false" />
 			<ConfirmationModal
 				:is-open="isCompleteModalOpen"
-				:title="editingTask?.isCompleted ? 'Reabrir Tarefa' : 'Concluir Tarefa'"
-				:message="editingTask?.isCompleted ? `Deseja marcar '${editingTask?.name}' como em andamento novamente?` : `Confirmar a conclusão da tarefa '${editingTask?.name}'?`"
+				:title="editingTask?.status === 'completed' ? 'Reabrir Tarefa' : 'Concluir Tarefa'"
+				:message="editingTask?.status === 'completed' ? `Deseja marcar '${editingTask?.name}' como novo novamente?` : `Confirmar a conclusão da tarefa '${editingTask?.name}'?`"
 				@confirm="confirmCompletion"
 				@cancel="isCompleteModalOpen = false"
 			/>
@@ -753,6 +836,16 @@ const confirmCompletion = () => {
 .slide-enter-from,
 .slide-leave-to {
 	transform: translateX(100%);
+}
+
+.hint-fade-enter-active,
+.hint-fade-leave-active {
+	transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.hint-fade-enter-from,
+.hint-fade-leave-to {
+	opacity: 0;
+	transform: translateY(-4px);
 }
 
 .custom-scrollbar::-webkit-scrollbar {
