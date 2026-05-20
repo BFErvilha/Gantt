@@ -3,7 +3,7 @@ import { ref, watch, computed, onMounted } from 'vue'
 import { useGantt, type Task, type TaskStatus } from '@/composables/useGantt'
 import ConfirmationModal from './ConfirmationModal.vue'
 
-const { tasks, addTask, editingTask, updateTask, cancelEditing, removeTask, setTaskStatus, toggleTaskCompletion, config, isTaskModalOpen, allSprints, duplicateTask, hasCyclicDependency, isTaskLocked, isSprintClosed } = useGantt()
+const { tasks, addTask, editingTask, updateTask, cancelEditing, removeTask, setTaskStatus, config, isTaskModalOpen, allSprints, duplicateTask, hasCyclicDependency, isTaskLocked } = useGantt()
 
 // Read-only lock state for tasks in closed sprints
 const isLockedTask = computed(() => !!editingTask.value && isTaskLocked(editingTask.value))
@@ -79,7 +79,6 @@ const dismissDependencyHint = (permanent = false) => {
 }
 
 const sectionRelOpen = ref(false)
-const sectionVisOpen = ref(false)
 
 watch(editingTask, newTask => {
 	if (newTask) {
@@ -126,15 +125,6 @@ const availableSprintsFlow = computed(() => {
 const flowSprintSquad = computed(() => {
 	if (!flowState.value.sprintId) return null
 	const sprint = allSprints.value.find(s => s.id === flowState.value.sprintId)
-	if (sprint && sprint.squadId) {
-		return config.value.squads.find(s => s.id === sprint.squadId)
-	}
-	return null
-})
-
-const selectedSprintSquad = computed(() => {
-	if (!formState.value.sprintId) return null
-	const sprint = allSprints.value.find(s => s.id === formState.value.sprintId)
 	if (sprint && sprint.squadId) {
 		return config.value.squads.find(s => s.id === sprint.squadId)
 	}

@@ -65,6 +65,7 @@ export interface Task {
 	sprintId?: string
 	isNotPlanned?: boolean
 	isCompleted?: boolean
+	progress?: number
 	completedDate?: string
 	isMilestone?: boolean
 	originalStartDate?: string

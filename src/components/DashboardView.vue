@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useGantt } from '@/composables/useGantt'
+import { useGantt, type Task } from '@/composables/useGantt'
 import { differenceInCalendarDays, parseISO, isAfter, startOfDay, format, isValid, eachDayOfInterval, isWeekend, addDays } from 'date-fns'
 
 const { tasks, config, automaticRisks, computedTasks } = useGantt()
 
 const dashboardSquadFilter = ref('')
 
-const isTaskInSquad = (t: ReturnType<typeof tasks.value>[number], squadId: string): boolean => {
+const isTaskInSquad = (t: Task, squadId: string): boolean => {
 	if (!squadId) return true
 	if (t.sprintId) {
 		const squad = config.value.squads.find(s => s.sprints.some(sp => sp.id === t.sprintId))

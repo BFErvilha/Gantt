@@ -33,7 +33,6 @@ const {
 	sprintsAwaitingClose,
 	closeSprint,
 	isTaskLocked,
-	isSprintClosed,
 } = useGantt()
 
 const showCriticalPath = ref(false)
